@@ -4,6 +4,7 @@
 #pragma comment(lib, "ws2_32.lib")
 
 #include "Common.h"
+#include "Http.h"
 
 #include <cstring>
 #include <exception>
@@ -19,6 +20,14 @@
 #include <ws2tcpip.h>
 
 namespace PapierMache {
+
+    class RequestHandler {
+    public:
+        virtual void handle(const HttpRequest request) = 0;
+
+    protected:
+        // const std::map<std::string>
+    };
 
     class ThreadsMap {
     public:
@@ -134,6 +143,7 @@ namespace PapierMache {
         void receive()
         {
             const int DEFAULT_BUFLEN = 512;
+            // const int DEFAULT_BUFLEN = 512;
 
             try {
                 char buf[DEFAULT_BUFLEN];
@@ -144,37 +154,87 @@ namespace PapierMache {
                 // 仮の応答用メッセージ
                 memset(buf, 0, sizeof(buf));
                 std::ostringstream oss{""};
-                oss << "HTTP/1.0 200 OK\r\n"
-                    << "Content-Length: 20\r\n"
+                oss << "HTTP/1.1 200 OK\r\n"
+                    << "Content-Length: 7\r\n"
                     << "Content-Type: text/html\r\n"
                     << "\r\n"
                     << "HELLO\r\n";
 
+                std::ostringstream recvData{""};
+                int count = 0;
                 do {
+                    ++count;
                     memset(recvBuf, 0, sizeof(recvBuf));
+                    std::cout << "-----" << count << ": " << recvBuf << std::endl;
                     std::cout << "socket : " << clientSocket_ << " recv BEFORE" << std::endl;
                     result = recv(clientSocket_, recvBuf, sizeof(recvBuf), 0);
                     std::cout << "socket : " << clientSocket_ << " recv AFTER" << std::endl;
+                    std::cout << "-----" << count << ": " << recvBuf << std::endl;
                     if (result > 0) {
                         // 本来ならばクライアントからの要求内容をパースすべきです
-                        std::cout << recvBuf << std::endl;
+                        // std::cout << "-----" << count << ": " << recvBuf << std::endl;
                         // std::cout << "socket : " << clientSocket_ << " recv success." << std::endl;
 
-                        // 相手が何を言おうとダミーHTTPメッセージ送信
-                        size_t len = sizeof(buf);
-                        if (sizeof(buf) > oss.str().size()) {
-                            len = oss.str().size();
+                        recvData << recvBuf;
+                        std::cout << "-----" << count << ": recvData " << recvData.str() << std::endl;
+                        // 仮の処理:終端が空行かであれば全て読み取ったとみなす
+                        size_t lastIndex = recvData.str().length() - 1;
+                        // if (lastIndex > 5) {
+                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex - 5) " << int{recvData.str().at(lastIndex - 5)} << std::endl;
+                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex - 4) " << int{recvData.str().at(lastIndex - 4)} << std::endl;
+                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex - 3) " << int{recvData.str().at(lastIndex - 3)} << std::endl;
+                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex - 2) " << int{recvData.str().at(lastIndex - 2)} << std::endl;
+                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex - 1) " << int{recvData.str().at(lastIndex - 1)} << std::endl;
+                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex) " << int{recvData.str().at(lastIndex)} << std::endl;
+                        // }
+
+                        if (lastIndex > 4 &&
+                            int{recvData.str().at(lastIndex - 3)} == 13 &&
+                            int{recvData.str().at(lastIndex - 2)} == 10 &&
+                            int{recvData.str().at(lastIndex - 1)} == 13 &&
+                            int{recvData.str().at(lastIndex)} == 10) {
+
+                            std::cout << "----------------------" << count << std::endl;
+                            size_t len = sizeof(buf);
+                            if (sizeof(buf) > oss.str().size()) {
+                                len = oss.str().size();
+                            }
+                            std::memcpy(buf, oss.str().c_str(), len);
+                            std::cout << "-----" << count << ": " << buf << std::endl;
+                            iSendResult = send(clientSocket_, buf, len, 0);
+                            if (iSendResult == SOCKET_ERROR) {
+                                std::cout << "socket : " << clientSocket_ << " send failed with error: " << WSAGetLastError() << std::endl;
+                            }
+                            break;
                         }
-                        std::memcpy(buf, oss.str().c_str(), len);
-                        iSendResult = send(clientSocket_, buf, result, 0);
-                        if (iSendResult == SOCKET_ERROR) {
-                            std::cout << "socket : " << clientSocket_ << " send failed with error: " << WSAGetLastError() << std::endl;
-                        }
+                        // std::cout << recvData.str() << std::endl;
+                        //   if (recvData.str().at(recvData.str().length() -1) == '\r\n') {
+                        //       // 相手が何を言おうとダミーHTTPメッセージ送信
+                        //       oss << recvBuf;
+
+                        // }
                     }
                     else if (result == 0) {
+                        // 相手が何を言おうとダミーHTTPメッセージ送信
+                        // size_t len = sizeof(buf);
+                        // if (sizeof(buf) > oss.str().size()) {
+                        //     len = oss.str().size();
+                        // }
+                        // std::memcpy(buf, oss.str().c_str(), len);
+                        // iSendResult = send(clientSocket_, buf, len, 0);
+                        // // iSendResult = send(clientSocket_, buf, result, 0);
+                        // if (iSendResult == SOCKET_ERROR) {
+                        //     std::cout << "socket : " << clientSocket_ << " send failed with error: " << WSAGetLastError() << std::endl;
+                        // }
+                        // std::cout << recvData.str() << std::endl;
+                        recvData.str("");
+                        recvData.clear(std::stringstream::goodbit);
                         std::cout << "socket : " << clientSocket_ << " Connection closing..." << std::endl;
                     }
                     else {
+                        // std::cout << recvData.str() << std::endl;
+                        recvData.str("");
+                        recvData.clear(std::stringstream::goodbit);
                         std::cout << "socket : " << clientSocket_ << " recv failed with error: " << WSAGetLastError() << std::endl;
                     }
                 } while (result > 0);
@@ -195,6 +255,10 @@ namespace PapierMache {
         Receiver &operator=(Receiver) = delete;
 
     private:
+        HttpRequest parseRecvData(const std::string &s) const
+        {
+        }
+
         const SOCKET clientSocket_;
         ThreadsMap &refThreadsMap_;
     };
@@ -203,18 +267,30 @@ namespace PapierMache {
     public:
         WebServer(const std::string port, const int maxThreads)
             : port_{port},
-              maxThreads_{maxThreads}
+              maxThreads_{maxThreads},
+              listenSocket_{INVALID_SOCKET}
         {
         }
 
         WebServer()
             : port_{"27015"},
-              maxThreads_{10}
+              maxThreads_{10},
+              listenSocket_{INVALID_SOCKET}
         {
         }
 
         ~WebServer()
         {
+            try {
+                std::cout << "listen socket : " << listenSocket_ << " closesocket BEFORE" << std::endl;
+                closesocket(listenSocket_);
+                std::cout << "listen socket : " << listenSocket_ << " closesocket AFTER" << std::endl;
+                WSACleanup();
+            }
+            catch (std::exception &e) {
+            }
+            catch (...) {
+            }
         }
 
         // コピー禁止
@@ -230,14 +306,9 @@ namespace PapierMache {
                 WSADATA wsaData;
                 int iResult;
 
-                SOCKET listenSocket = INVALID_SOCKET;
                 SOCKET clientSocket = INVALID_SOCKET;
                 struct addrinfo *result = NULL;
                 struct addrinfo hints;
-
-                // int iSendResult;
-                // char buf[DEFAULT_BUFLEN];
-                // char recvBuf[DEFAULT_BUFLEN];
 
                 // winsockの初期化
                 iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -256,36 +327,30 @@ namespace PapierMache {
                 iResult = getaddrinfo(NULL, port_.c_str(), &hints, &result);
                 if (iResult != 0) {
                     std::cout << "getaddrinfo failed with error: " << iResult << std::endl;
-                    WSACleanup();
                     return 1;
                 }
 
                 // ソケットの作成
-                listenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-                if (listenSocket == INVALID_SOCKET) {
+                listenSocket_ = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+                if (listenSocket_ == INVALID_SOCKET) {
                     std::cout << "socket failed with error: " << WSAGetLastError() << std::endl;
                     freeaddrinfo(result);
-                    WSACleanup();
                     return 1;
                 }
 
                 // TCPリスニングソケットの設定
-                iResult = bind(listenSocket, result->ai_addr, (int)result->ai_addrlen);
+                iResult = bind(listenSocket_, result->ai_addr, (int)result->ai_addrlen);
                 if (iResult == SOCKET_ERROR) {
                     std::cout << "bind failed with error: " << WSAGetLastError() << std::endl;
                     freeaddrinfo(result);
-                    closesocket(listenSocket);
-                    WSACleanup();
                     return 1;
                 }
 
                 freeaddrinfo(result);
 
-                iResult = listen(listenSocket, SOMAXCONN);
+                iResult = listen(listenSocket_, SOMAXCONN);
                 if (iResult == SOCKET_ERROR) {
                     std::cout << "listen failed with error: " << WSAGetLastError() << std::endl;
-                    closesocket(listenSocket);
-                    WSACleanup();
                     return 1;
                 }
 
@@ -293,19 +358,16 @@ namespace PapierMache {
                 while (1) {
 
                     std::cout << "accept BEFORE" << std::endl;
-                    clientSocket = accept(listenSocket, NULL, NULL);
+                    clientSocket = accept(listenSocket_, NULL, NULL);
                     std::cout << "accept AFTER clientSocket is : " << clientSocket << std::endl;
 
                     if (clientSocket == INVALID_SOCKET) {
                         std::cout << "accept failed with error: " << WSAGetLastError() << std::endl;
-                        closesocket(listenSocket);
-                        WSACleanup();
                         return 1;
                     }
 
                     if (threads.isFull()) {
                         std::cout << "number of threads is upper limits." << std::endl;
-                        closesocket(listenSocket);
                         return 1;
                     }
 
@@ -325,9 +387,6 @@ namespace PapierMache {
                     std::cout << "number of threads is : " << threads.size() << std::endl;
                 }
 
-                closesocket(listenSocket);
-                WSACleanup();
-
                 return 0;
             }
             catch (std::exception &e) {
@@ -343,6 +402,7 @@ namespace PapierMache {
     private:
         const std::string port_;
         const int maxThreads_;
+        SOCKET listenSocket_;
     };
 
 } // namespace PapierMache
