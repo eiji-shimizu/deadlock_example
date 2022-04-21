@@ -101,7 +101,26 @@ namespace PapierMache {
 
     class Receiver {
     public:
+        Receiver(const SOCKET clientSocket, ThreadsMap &refThreadMap)
+            : clientSocket_{clientSocket},
+              refThreadsMap_{refThreadMap}
+        {
+        }
+
+        ~Receiver()
+        {
+        }
+
+        // コピー禁止
+        Receiver(const Receiver &) = delete;
+        Receiver &operator=(const Receiver &) = delete;
+        // ムーブ禁止
+        Receiver(Receiver &&) = delete;
+        Receiver &operator=(Receiver &&) = delete;
+
     private:
+        const SOCKET clientSocket_;
+        ThreadsMap &refThreadsMap_;
     };
 
     class WebServer {
@@ -121,6 +140,13 @@ namespace PapierMache {
         ~WebServer()
         {
         }
+
+        // コピー禁止
+        WebServer(const WebServer &) = delete;
+        WebServer &operator=(const WebServer &) = delete;
+        // ムーブ禁止
+        WebServer(WebServer &&) = delete;
+        WebServer &operator=(WebServer &&) = delete;
 
         int start()
         {
@@ -186,15 +212,6 @@ namespace PapierMache {
                     WSACleanup();
                     return 1;
                 }
-
-                // 仮の応答用メッセージ
-                // memset(buf, 0, sizeof(buf));
-                // std::ostringstream oss{""};
-                // oss << "HTTP/1.0 200 OK\r\n"
-                //     << "Content-Length: 20\r\n"
-                //     << "Content-Type: text/html\r\n"
-                //     << "\r\n"
-                //     << "HELLO\r\n";
 
                 ThreadsMap threads;
                 while (1) {
@@ -263,13 +280,13 @@ namespace PapierMache {
                                 }
                                 else {
                                     std::cout << "socket : " << clientSocket << " recv failed with error: " << WSAGetLastError() << std::endl;
-                                    closesocket(clientSocket);
+                                    //closesocket(clientSocket);
                                     // WSACleanup();
                                     // return 1;
                                 }
                             } while (result > 0);
 
-                            closesocket(clientSocket);
+                            // closesocket(clientSocket);
                         }
                         catch (std::exception &e) {
                             // ignore
@@ -278,6 +295,16 @@ namespace PapierMache {
                         catch (...) {
                             // ignore
                             closesocket(clientSocket);
+                        }
+
+                        // コネクションをシャットダウン
+                        int shutDownResult = 0;
+                        shutDownResult = shutdown(clientSocket, SD_SEND);
+                        if (shutDownResult == SOCKET_ERROR) {
+                            std::cout << "socket : " << clientSocket << " shutdown failed with error: " << WSAGetLastError() << std::endl;
+                            closesocket(clientSocket);
+                            //WSACleanup();
+                            //return 1;
                         }
 
                         closesocket(clientSocket);
