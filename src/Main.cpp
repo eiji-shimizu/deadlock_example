@@ -177,8 +177,7 @@ int main()
 
             std::cout << "accept BEFORE" << std::endl;
             clientSocket = accept(listenSocket, NULL, NULL);
-            std::cout << "accept AFTER" << std::endl;
-            std::cout << "clientSocket is : " << clientSocket << std::endl;
+            std::cout << "accept AFTER clientSocket is : " << clientSocket << std::endl;
 
             if (clientSocket == INVALID_SOCKET) {
                 std::cout << "accept failed with error: " << WSAGetLastError() << std::endl;
@@ -213,10 +212,13 @@ int main()
 
                     do {
                         memset(recvBuf, 0, sizeof(recvBuf));
+                        std::cout << "socket : " << clientSocket << " recv BEFORE" << std::endl;
                         result = recv(clientSocket, recvBuf, sizeof(recvBuf), 0);
+                        std::cout << "socket : " << clientSocket << " recv AFTER" << std::endl;
                         if (result > 0) {
                             // 本来ならばクライアントからの要求内容をパースすべきです
-                            // std::cout << recvBuf << std::endl;
+                            std::cout << recvBuf << std::endl;
+                            //std::cout << "socket : " << clientSocket << " recv success." << std::endl;
 
                             // 相手が何を言おうとダミーHTTPメッセージ送信
                             size_t len = sizeof(buf);
@@ -226,17 +228,17 @@ int main()
                             std::memcpy(buf, oss.str().c_str(), len);
                             iSendResult = send(clientSocket, buf, result, 0);
                             if (iSendResult == SOCKET_ERROR) {
-                                std::cout << "send failed with error: " << WSAGetLastError() << std::endl;
+                                std::cout << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << std::endl;
                                 closesocket(clientSocket);
                                 // WSACleanup();
                                 // return 1;
                             }
                         }
                         else if (result == 0) {
-                            std::cout << "Connection closing..." << std::endl;
+                            std::cout << "socket : " << clientSocket << " Connection closing..." << std::endl;
                         }
                         else {
-                            std::cout << "recv failed with error: " << WSAGetLastError() << std::endl;
+                            std::cout << "socket : " << clientSocket << " recv failed with error: " << WSAGetLastError() << std::endl;
                             closesocket(clientSocket);
                             // WSACleanup();
                             // return 1;
