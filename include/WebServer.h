@@ -109,14 +109,90 @@ namespace PapierMache {
 
         ~Receiver()
         {
+            try {
+                // コネクションをシャットダウン
+                int shutDownResult = 0;
+                std::cout << "socket : " << clientSocket_ << " shutdown BEFORE" << std::endl;
+                shutDownResult = shutdown(clientSocket_, SD_BOTH);
+                std::cout << "socket : " << clientSocket_ << " shutdown AFTER" << std::endl;
+                if (shutDownResult == SOCKET_ERROR) {
+                    std::cout << "socket : " << clientSocket_ << " shutdown failed with error: " << WSAGetLastError() << std::endl;
+                }
+                // コネクションをクローズ
+                std::cout << "socket : " << clientSocket_ << " closesocket BEFORE" << std::endl;
+                closesocket(clientSocket_);
+                std::cout << "socket : " << clientSocket_ << " closesocket AFTER" << std::endl;
+
+                refThreadsMap_.setFinishedFlag(std::this_thread::get_id());
+            }
+            catch (std::exception &e) {
+            }
+            catch (...) {
+            }
+        }
+
+        void receive()
+        {
+            const int DEFAULT_BUFLEN = 512;
+
+            try {
+                char buf[DEFAULT_BUFLEN];
+                char recvBuf[DEFAULT_BUFLEN];
+                int result;
+                int iSendResult;
+
+                // 仮の応答用メッセージ
+                memset(buf, 0, sizeof(buf));
+                std::ostringstream oss{""};
+                oss << "HTTP/1.0 200 OK\r\n"
+                    << "Content-Length: 20\r\n"
+                    << "Content-Type: text/html\r\n"
+                    << "\r\n"
+                    << "HELLO\r\n";
+
+                do {
+                    memset(recvBuf, 0, sizeof(recvBuf));
+                    std::cout << "socket : " << clientSocket_ << " recv BEFORE" << std::endl;
+                    result = recv(clientSocket_, recvBuf, sizeof(recvBuf), 0);
+                    std::cout << "socket : " << clientSocket_ << " recv AFTER" << std::endl;
+                    if (result > 0) {
+                        // 本来ならばクライアントからの要求内容をパースすべきです
+                        std::cout << recvBuf << std::endl;
+                        // std::cout << "socket : " << clientSocket_ << " recv success." << std::endl;
+
+                        // 相手が何を言おうとダミーHTTPメッセージ送信
+                        size_t len = sizeof(buf);
+                        if (sizeof(buf) > oss.str().size()) {
+                            len = oss.str().size();
+                        }
+                        std::memcpy(buf, oss.str().c_str(), len);
+                        iSendResult = send(clientSocket_, buf, result, 0);
+                        if (iSendResult == SOCKET_ERROR) {
+                            std::cout << "socket : " << clientSocket_ << " send failed with error: " << WSAGetLastError() << std::endl;
+                        }
+                    }
+                    else if (result == 0) {
+                        std::cout << "socket : " << clientSocket_ << " Connection closing..." << std::endl;
+                    }
+                    else {
+                        std::cout << "socket : " << clientSocket_ << " recv failed with error: " << WSAGetLastError() << std::endl;
+                    }
+                } while (result > 0);
+            }
+            catch (std::exception &e) {
+                std::cout << "socket : " << clientSocket_ << " error : " << e.what() << std::endl;
+            }
+            catch (...) {
+                std::cout << "socket : " << clientSocket_ << " unexpected error." << std::endl;
+            }
         }
 
         // コピー禁止
         Receiver(const Receiver &) = delete;
         Receiver &operator=(const Receiver &) = delete;
         // ムーブ禁止
-        Receiver(Receiver &&) = delete;
-        Receiver &operator=(Receiver &&) = delete;
+        Receiver(Receiver &&rhs) = delete;
+        Receiver &operator=(Receiver) = delete;
 
     private:
         const SOCKET clientSocket_;
@@ -234,81 +310,14 @@ namespace PapierMache {
                     }
 
                     std::thread t{[clientSocket, &threads] {
-                        const int DEFAULT_BUFLEN = 512;
-
                         try {
-                            char buf[DEFAULT_BUFLEN];
-                            char recvBuf[DEFAULT_BUFLEN];
-                            int result;
-                            int iSendResult;
-
-                            // 仮の応答用メッセージ
-                            memset(buf, 0, sizeof(buf));
-                            std::ostringstream oss{""};
-                            oss << "HTTP/1.0 200 OK\r\n"
-                                << "Content-Length: 20\r\n"
-                                << "Content-Type: text/html\r\n"
-                                << "\r\n"
-                                << "HELLO\r\n";
-
-                            do {
-                                memset(recvBuf, 0, sizeof(recvBuf));
-                                std::cout << "socket : " << clientSocket << " recv BEFORE" << std::endl;
-                                result = recv(clientSocket, recvBuf, sizeof(recvBuf), 0);
-                                std::cout << "socket : " << clientSocket << " recv AFTER" << std::endl;
-                                if (result > 0) {
-                                    // 本来ならばクライアントからの要求内容をパースすべきです
-                                    std::cout << recvBuf << std::endl;
-                                    // std::cout << "socket : " << clientSocket << " recv success." << std::endl;
-
-                                    // 相手が何を言おうとダミーHTTPメッセージ送信
-                                    size_t len = sizeof(buf);
-                                    if (sizeof(buf) > oss.str().size()) {
-                                        len = oss.str().size();
-                                    }
-                                    std::memcpy(buf, oss.str().c_str(), len);
-                                    iSendResult = send(clientSocket, buf, result, 0);
-                                    if (iSendResult == SOCKET_ERROR) {
-                                        std::cout << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << std::endl;
-                                        closesocket(clientSocket);
-                                        // WSACleanup();
-                                        // return 1;
-                                    }
-                                }
-                                else if (result == 0) {
-                                    std::cout << "socket : " << clientSocket << " Connection closing..." << std::endl;
-                                }
-                                else {
-                                    std::cout << "socket : " << clientSocket << " recv failed with error: " << WSAGetLastError() << std::endl;
-                                    // closesocket(clientSocket);
-                                    //  WSACleanup();
-                                    //  return 1;
-                                }
-                            } while (result > 0);
-
-                            // closesocket(clientSocket);
+                            Receiver receiver{clientSocket, threads};
+                            receiver.receive();
                         }
                         catch (std::exception &e) {
-                            // ignore
-                            closesocket(clientSocket);
                         }
                         catch (...) {
-                            // ignore
-                            closesocket(clientSocket);
                         }
-
-                        // コネクションをシャットダウン
-                        int shutDownResult = 0;
-                        shutDownResult = shutdown(clientSocket, SD_BOTH);
-                        if (shutDownResult == SOCKET_ERROR) {
-                            std::cout << "socket : " << clientSocket << " shutdown failed with error: " << WSAGetLastError() << std::endl;
-                            closesocket(clientSocket);
-                            // WSACleanup();
-                            // return 1;
-                        }
-
-                        closesocket(clientSocket);
-                        threads.setFinishedFlag(std::this_thread::get_id());
                     }};
 
                     threads.addThread(std::move(t));
