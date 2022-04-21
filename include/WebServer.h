@@ -280,9 +280,9 @@ namespace PapierMache {
                                 }
                                 else {
                                     std::cout << "socket : " << clientSocket << " recv failed with error: " << WSAGetLastError() << std::endl;
-                                    //closesocket(clientSocket);
-                                    // WSACleanup();
-                                    // return 1;
+                                    // closesocket(clientSocket);
+                                    //  WSACleanup();
+                                    //  return 1;
                                 }
                             } while (result > 0);
 
@@ -299,12 +299,12 @@ namespace PapierMache {
 
                         // コネクションをシャットダウン
                         int shutDownResult = 0;
-                        shutDownResult = shutdown(clientSocket, SD_SEND);
+                        shutDownResult = shutdown(clientSocket, SD_BOTH);
                         if (shutDownResult == SOCKET_ERROR) {
                             std::cout << "socket : " << clientSocket << " shutdown failed with error: " << WSAGetLastError() << std::endl;
                             closesocket(clientSocket);
-                            //WSACleanup();
-                            //return 1;
+                            // WSACleanup();
+                            // return 1;
                         }
 
                         closesocket(clientSocket);
