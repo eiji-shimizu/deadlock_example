@@ -4,6 +4,7 @@
 #pragma comment(lib, "ws2_32.lib")
 
 #include "Common.h"
+#include "DLEXRequestHandler.h"
 #include "Http.h"
 #include "RequestHandler.h"
 
@@ -303,6 +304,11 @@ namespace PapierMache {
                     return 0;
                 }
 
+                // RequestHandlerのセット
+                handlerTree_.addRootNode({"/", std::make_unique<RootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
+                // deadlock_exampleのRequestHandlerのセット
+                handlerTree_.addRootNode({"dlex", std::make_unique<DLEXRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
+
                 WSADATA wsaData;
                 int iResult;
 
@@ -424,6 +430,7 @@ namespace PapierMache {
         const int maxThreads_;
         SOCKET listenSocket_;
         bool isInitialized_;
+        HandlerTree handlerTree_;
         std::mutex mt_;
     };
 

@@ -3,10 +3,14 @@
 
 #include "Http.h"
 
+#include <initializer_list>
 #include <iostream>
 #include <map>
 #include <memory>
+#include <sstream>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace PapierMache {
 
@@ -17,30 +21,56 @@ namespace PapierMache {
 
     class RequestHandler {
     public:
-        RequestHandler() {}
+        RequestHandler(std::initializer_list<HttpRequestMethod> supportMethods)
+            : supportMethods_{supportMethods}
+        {
+        }
         virtual ~RequestHandler() {}
 
+        bool isSupport(HttpRequestMethod method)
+        {
+            for (const HttpRequestMethod m : supportMethods_) {
+                if (m == method) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         virtual HandlerResult handle(const HttpRequest request) = 0;
+
+    private:
+        std::vector<HttpRequestMethod> supportMethods_;
     };
 
     class DefaultHandler : public RequestHandler {
-        DefaultHandler() {}
+        DefaultHandler(std::initializer_list<HttpRequestMethod> supportMethods)
+            : RequestHandler{supportMethods}
+        {
+        }
+
         virtual ~DefaultHandler() {}
 
         virtual HandlerResult handle(const HttpRequest request)
         {
             std::cout << "DefaultHandler::handle" << std::endl;
+            return HandlerResult{};
         }
     };
 
     class RootHandler : public RequestHandler {
     public:
-        RootHandler() {}
+        RootHandler(std::initializer_list<HttpRequestMethod> supportMethods)
+            : RequestHandler{supportMethods}
+        {
+        }
+
         virtual ~RootHandler() {}
 
         virtual HandlerResult handle(const HttpRequest request)
         {
             std::cout << "RootHandler::handle" << std::endl;
+            return HandlerResult{};
         }
     };
 
@@ -95,6 +125,8 @@ namespace PapierMache {
             childNodes_.insert_or_assign(childNode.pathName_, std::move(childNode));
         }
 
+        std::string pathName() const { return pathName_; }
+
     private:
         std::string pathName_;
         std::unique_ptr<RequestHandler> pHandler_;
@@ -103,15 +135,31 @@ namespace PapierMache {
 
     class HandlerTree {
     public:
+        HandlerTree() {}
+        ~HandlerTree() {}
+
         // 引数のノードをHttpリクエストメソッドごとのルートノードとして追加する
-        // すでにルートノードが存在していた場合は上書きされる
-        void addRootNode(HttpRequestMethod method, HandlerTreeNode root)
+        // すでにルートノードが存在していた場合は例外を投げる
+        void addRootNode(HandlerTreeNode &&rootNode)
         {
-            rootNodes_.insert_or_assign(method, std::move(root));
+            if (rootNodes_.find(rootNode.pathName()) != rootNodes_.end()) {
+
+                std::ostringstream oss{""};
+                oss << "root node : " << rootNode.pathName() << " is already exists." << std::endl;
+                throw std::runtime_error{oss.str()};
+            }
+            rootNodes_.insert(std::make_pair(rootNode.pathName(), std::move(rootNode)));
         }
 
+        // コピー禁止
+        HandlerTree(const HandlerTree &) = delete;
+        HandlerTree &operator=(const HandlerTree &) = delete;
+        // ムーブ禁止
+        HandlerTree(HandlerTree &&) = delete;
+        HandlerTree &operator=(HandlerTree &&) = delete;
+
     private:
-        std::map<HttpRequestMethod, HandlerTreeNode> rootNodes_;
+        std::map<std::string, HandlerTreeNode> rootNodes_;
     };
 
 } // namespace PapierMache
