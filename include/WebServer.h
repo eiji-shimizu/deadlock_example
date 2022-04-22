@@ -170,23 +170,63 @@ namespace PapierMache {
                         // std::cout << "socket : " << clientSocket_ << " recv success." << std::endl;
 
                         recvData << recvBuf;
-                        std::cout << "-----" << count << ": recvData " << recvData.str() << std::endl;
-                        // 仮の処理:終端が空行かであれば全て読み取ったとみなす
+                        // std::cout << "-----" << count << ": recvData " << recvData.str() << std::endl;
+                        //  仮の処理:終端が空行かであれば全て読み取ったとみなす
                         size_t lastIndex = recvData.str().length() - 1;
-                        // if (lastIndex > 5) {
-                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex - 5) " << int{recvData.str().at(lastIndex - 5)} << std::endl;
-                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex - 4) " << int{recvData.str().at(lastIndex - 4)} << std::endl;
-                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex - 3) " << int{recvData.str().at(lastIndex - 3)} << std::endl;
-                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex - 2) " << int{recvData.str().at(lastIndex - 2)} << std::endl;
-                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex - 1) " << int{recvData.str().at(lastIndex - 1)} << std::endl;
-                        //     std::cout << "-----" << count << ": recvData.str().at(lastIndex) " << int{recvData.str().at(lastIndex)} << std::endl;
-                        // }
-
                         if (lastIndex > 4 &&
                             int{recvData.str().at(lastIndex - 3)} == 13 &&
                             int{recvData.str().at(lastIndex - 2)} == 10 &&
                             int{recvData.str().at(lastIndex - 1)} == 13 &&
                             int{recvData.str().at(lastIndex)} == 10) {
+
+                            // 受信データをhttpリクエストとして解析
+                            std::istringstream iss{recvData.str()};
+                            HttpRequest request;
+                            // 1行目
+                            std::string line;
+                            if (std::getline(iss, line)) {
+                                std::istringstream text{line};
+                                std::string word;
+                                text >> word;
+                                request.setHttpRequestMethodFromText(word);
+
+                                text >> word;
+                                request.path = word;
+                                text >> word;
+                                request.protocol = word;
+                            }
+                            else {
+                                throw std::runtime_error{"error occurred while http request parse."};
+                            }
+                            // Httpリクエストヘッダー
+                            std::ostringstream requestHeaderkey{""};
+                            std::ostringstream requestHeaderValue{""};
+                            char c = ' ';
+                            while (iss >> c) {
+                                if (c != ':') {
+                                    requestHeaderkey << c;
+                                }
+                                else {
+                                    // 値の先頭の空白を読みとばす
+                                    while (iss >> c && c == ' ') {
+                                        // noop
+                                    }
+                                    iss.putback(c);
+                                    std::string s;
+                                    if (std::getline(iss, s)) {
+                                        requestHeaderValue << s;
+                                    }
+
+                                    request.headers.insert(std::make_pair(requestHeaderkey.str(), requestHeaderValue.str()));
+                                    requestHeaderkey.str("");
+                                    requestHeaderkey.clear(std::stringstream::goodbit);
+                                    requestHeaderValue.str("");
+                                    requestHeaderValue.clear(std::stringstream::goodbit);
+                                }
+                            }
+
+                            // ハンドラーによるリクエスト処理
+                            std::cout << "-----" << count << ": request " << request.toString() << std::endl;
 
                             std::cout << "----------------------" << count << std::endl;
                             size_t len = sizeof(buf);
