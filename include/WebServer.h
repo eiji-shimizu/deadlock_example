@@ -21,14 +21,6 @@
 
 namespace PapierMache {
 
-    class RequestHandler {
-    public:
-        virtual void handle(const HttpRequest request) = 0;
-
-    protected:
-        // const std::map<std::string>
-    };
-
     class ThreadsMap {
     public:
         ThreadsMap(int max)
