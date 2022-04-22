@@ -11,6 +11,11 @@ int main()
     try {
 
         PapierMache::WebServer server{DEFAULT_PORT, MAX_THREADS};
+        std::cout << "server initialization start." << std::endl;
+        if (server.initialize() != 0) {
+            std::cout << "server initialization failed." << std::endl;
+            return 1;
+        }
         server.start();
         return 0;
     }
@@ -22,5 +27,4 @@ int main()
     }
 
     return 1;
-
 }

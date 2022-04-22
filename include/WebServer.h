@@ -5,6 +5,7 @@
 
 #include "Common.h"
 #include "Http.h"
+#include "RequestHandler.h"
 
 #include <cstring>
 #include <exception>
@@ -260,14 +261,16 @@ namespace PapierMache {
         WebServer(const std::string port, const int maxThreads)
             : port_{port},
               maxThreads_{maxThreads},
-              listenSocket_{INVALID_SOCKET}
+              listenSocket_{INVALID_SOCKET},
+              isInitialized_{false}
         {
         }
 
         WebServer()
             : port_{"27015"},
               maxThreads_{10},
-              listenSocket_{INVALID_SOCKET}
+              listenSocket_{INVALID_SOCKET},
+              isInitialized_{false}
         {
         }
 
@@ -292,13 +295,17 @@ namespace PapierMache {
         WebServer(WebServer &&) = delete;
         WebServer &operator=(WebServer &&) = delete;
 
-        int start()
+        int initialize()
         {
             try {
+                std::lock_guard<std::mutex> lock{mt_};
+                if (isInitialized_) {
+                    return 0;
+                }
+
                 WSADATA wsaData;
                 int iResult;
 
-                SOCKET clientSocket = INVALID_SOCKET;
                 struct addrinfo *result = NULL;
                 struct addrinfo hints;
 
@@ -345,7 +352,28 @@ namespace PapierMache {
                     std::cout << "listen failed with error: " << WSAGetLastError() << std::endl;
                     return 1;
                 }
+                isInitialized_ = true;
+                return 0;
+            }
+            catch (std::exception &e) {
+                std::cout << e.what() << std::endl;
+            }
+            catch (...) {
+                std::cout << "unexpected error." << std::endl;
+            }
 
+            return 1;
+        }
+
+        int start()
+        {
+            HandlerTreeNode n0{"a", nullptr};
+            HandlerTreeNode n1{std::move(n0)};
+            HandlerTreeNode n2{"b", nullptr};
+            // n2 = n1;
+
+            try {
+                SOCKET clientSocket = INVALID_SOCKET;
                 ThreadsMap threads;
                 while (1) {
 
@@ -395,6 +423,8 @@ namespace PapierMache {
         const std::string port_;
         const int maxThreads_;
         SOCKET listenSocket_;
+        bool isInitialized_;
+        std::mutex mt_;
     };
 
 } // namespace PapierMache
