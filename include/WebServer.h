@@ -275,27 +275,15 @@ namespace PapierMache {
 
     class Receiver {
     public:
-        Receiver(ThreadsMap &refThreadsMap)
-            : refThreadsMap_{refThreadsMap}
+        Receiver(SocketManager &refSocketManager, ThreadsMap &refThreadsMap)
+            : refSocketManager_{refSocketManager},
+              refThreadsMap_{refThreadsMap}
         {
         }
 
         ~Receiver()
         {
             try {
-                // // コネクションをシャットダウン
-                // int shutDownResult = 0;
-                // std::cout << "socket : " << clientSocket_ << " shutdown BEFORE" << std::endl;
-                // shutDownResult = shutdown(clientSocket_, SD_BOTH);
-                // std::cout << "socket : " << clientSocket_ << " shutdown AFTER" << std::endl;
-                // if (shutDownResult == SOCKET_ERROR) {
-                //     std::cout << "socket : " << clientSocket_ << " shutdown failed with error: " << WSAGetLastError() << std::endl;
-                // }
-                // // コネクションをクローズ
-                // std::cout << "socket : " << clientSocket_ << " closesocket BEFORE" << std::endl;
-                // closesocket(clientSocket_);
-                // std::cout << "socket : " << clientSocket_ << " closesocket AFTER" << std::endl;
-
                 refThreadsMap_.setFinishedFlag(std::this_thread::get_id());
             }
             catch (std::exception &e) {
@@ -307,7 +295,6 @@ namespace PapierMache {
         void receive(const SOCKET clientSocket)
         {
             const int DEFAULT_BUFLEN = 512;
-            // const int DEFAULT_BUFLEN = 512;
 
             try {
                 char buf[DEFAULT_BUFLEN];
@@ -335,7 +322,6 @@ namespace PapierMache {
                     std::cout << "socket : " << clientSocket << " recv AFTER" << std::endl;
                     std::cout << "-----" << count << ": " << recvBuf << std::endl;
                     if (result > 0) {
-                        // 本来ならばクライアントからの要求内容をパースすべきです
                         // std::cout << "-----" << count << ": " << recvBuf << std::endl;
                         // std::cout << "socket : " << clientSocket << " recv success." << std::endl;
 
@@ -411,42 +397,27 @@ namespace PapierMache {
                             }
                             // break;
                         }
-                        // std::cout << recvData.str() << std::endl;
-                        //   if (recvData.str().at(recvData.str().length() -1) == '\r\n') {
-                        //       // 相手が何を言おうとダミーHTTPメッセージ送信
-                        //       oss << recvBuf;
-
-                        // }
                     }
                     else if (result == 0) {
-                        // 相手が何を言おうとダミーHTTPメッセージ送信
-                        // size_t len = sizeof(buf);
-                        // if (sizeof(buf) > oss.str().size()) {
-                        //     len = oss.str().size();
-                        // }
-                        // std::memcpy(buf, oss.str().c_str(), len);
-                        // iSendResult = send(clientSocket, buf, len, 0);
-                        // // iSendResult = send(clientSocket, buf, result, 0);
-                        // if (iSendResult == SOCKET_ERROR) {
-                        //     std::cout << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << std::endl;
-                        // }
-                        // std::cout << recvData.str() << std::endl;
                         recvData.str("");
                         recvData.clear(std::stringstream::goodbit);
+                        refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
                         std::cout << "socket : " << clientSocket << " Connection closing..." << std::endl;
                     }
                     else {
-                        // std::cout << recvData.str() << std::endl;
                         recvData.str("");
                         recvData.clear(std::stringstream::goodbit);
+                        refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
                         std::cout << "socket : " << clientSocket << " recv failed with error: " << WSAGetLastError() << std::endl;
                     }
                 } while (result > 0);
             }
             catch (std::exception &e) {
+                refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
                 std::cout << "socket : " << clientSocket << " error : " << e.what() << std::endl;
             }
             catch (...) {
+                refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
                 std::cout << "socket : " << clientSocket << " unexpected error." << std::endl;
             }
         }
@@ -459,6 +430,7 @@ namespace PapierMache {
         Receiver &operator=(Receiver) = delete;
 
     private:
+        SocketManager &refSocketManager_;
         ThreadsMap &refThreadsMap_;
     };
 
@@ -563,7 +535,6 @@ namespace PapierMache {
                     std::cout << "listen failed with error: " << WSAGetLastError() << std::endl;
                     return 1;
                 }
-
                 isInitialized_ = true;
                 return 0;
             }
@@ -586,6 +557,7 @@ namespace PapierMache {
 
             try {
                 SOCKET clientSocket = INVALID_SOCKET;
+                ThreadsMap threadsMap;
 
                 // SocketManagerを生成して開始する
                 SocketManager socketManager;
@@ -609,9 +581,9 @@ namespace PapierMache {
                     socketManager.addSocket(clientSocket);
 
                     // 別スレッドで受信処理をする
-                    std::thread t{[clientSocket, this] {
+                    std::thread t{[clientSocket, &socketManager, &threadsMap] {
                         try {
-                            Receiver receiver{threadsMap_};
+                            Receiver receiver{socketManager, threadsMap};
                             receiver.receive(clientSocket);
                         }
                         catch (std::exception &e) {
@@ -620,9 +592,9 @@ namespace PapierMache {
                         }
                     }};
 
-                    threadsMap_.addThread(std::move(t));
-                    threadsMap_.cleanUp();
-                    std::cout << "number of threads is : " << threadsMap_.size() << std::endl;
+                    threadsMap.addThread(std::move(t));
+                    threadsMap.cleanUp();
+                    std::cout << "number of threads is : " << threadsMap.size() << std::endl;
                 }
 
                 return 0;
@@ -642,7 +614,6 @@ namespace PapierMache {
         const int maxSockets_;
         SOCKET listenSocket_;
         HandlerTree handlerTree_;
-        ThreadsMap threadsMap_;
         bool isInitialized_;
         std::mutex mt_;
     };
