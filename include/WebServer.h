@@ -8,6 +8,8 @@
 #include "Http.h"
 #include "RequestHandler.h"
 
+#include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <exception>
 #include <iostream>
@@ -23,6 +25,175 @@
 
 namespace PapierMache {
 
+    enum class SocketStatus {
+        CREATED,
+        RECV,
+        RECEIVING,
+        PROCESSING,
+        SENDING,
+        COMPLETED,
+        DISCONNECT,
+        TO_CLOSE
+    };
+
+    class SocketManager;
+    class SocketHolder {
+        friend SocketManager;
+
+    public:
+        SocketHolder(SOCKET socket, SocketStatus status)
+            : socket_{socket},
+              status_{status}
+        {
+        }
+
+        // コピー代入
+        SocketHolder &operator=(const SocketHolder &rhs)
+        {
+            if (this == &rhs) {
+                return *this;
+            }
+            socket_ = rhs.socket_;
+            status_ = rhs.status_;
+        }
+
+        SocketStatus status() const { return status_; }
+
+        void setStatus(const SocketStatus status)
+        {
+            status_ = status;
+        }
+
+        bool isTheSame(const SOCKET s)
+        {
+            return socket_ == s;
+        }
+
+    private:
+        SOCKET socket_;
+        SocketStatus status_;
+    };
+
+    class SocketManager {
+    public:
+        SocketManager(int max)
+            : max_{max}
+        {
+        }
+        SocketManager()
+            : max_{10}
+        {
+        }
+        ~SocketManager()
+        {
+            if (thread_.joinable()) {
+                thread_.join();
+            }
+        }
+
+        void startMonitor()
+        {
+            thread_ = std::thread{[this] {
+                try {
+                    monitor();
+                }
+                catch (std::exception &e) {
+                    std::cout << e.what() << std::endl;
+                }
+                catch (...) {
+                }
+            }};
+        }
+
+        bool isFull()
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            return sockets_.size() == max_;
+        }
+
+        bool addSocket(const SOCKET s)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            if (sockets_.size() < max_) {
+                sockets_.push_back({s, SocketStatus::CREATED});
+                return true;
+            }
+            return false;
+        };
+
+        bool setStatus(SOCKET s, const SocketStatus status)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            for (SocketHolder &sh : sockets_) {
+                if (sh.isTheSame(s)) {
+                    sh.setStatus(status);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // コピー禁止
+        SocketManager(const SocketManager &) = delete;
+        SocketManager &operator=(const SocketManager &) = delete;
+        // ムーブ禁止
+        SocketManager(SocketManager &&) = delete;
+        SocketManager &operator=(SocketManager &&) = delete;
+
+    private:
+        void monitor()
+        {
+            try {
+                while (true) {
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    { // Scoped Lock start
+                        std::lock_guard<std::mutex> lock{mt_};
+                        // クローズすべきソケットを判別して処理する
+                        auto result = std::remove_if(sockets_.begin(), sockets_.end(),
+                                                     [](SocketHolder sh) {
+                                                         return sh.status() == SocketStatus::TO_CLOSE;
+                                                     });
+
+                        // クローズ処理
+                        std::for_each(result, sockets_.end(),
+                                      [](SocketHolder sh) {
+                                          try {
+                                              // コネクションをシャットダウン
+                                              int shutDownResult = 0;
+                                              std::cout << "socket : " << sh.socket_ << " shutdown BEFORE" << std::endl;
+                                              shutDownResult = shutdown(sh.socket_, SD_BOTH);
+                                              std::cout << "socket : " << sh.socket_ << " shutdown AFTER" << std::endl;
+                                              if (shutDownResult == SOCKET_ERROR) {
+                                                  std::cout << "socket : " << sh.socket_ << " shutdown failed with error: " << WSAGetLastError() << std::endl;
+                                              }
+                                              // コネクションをクローズ
+                                              std::cout << "socket : " << sh.socket_ << " closesocket BEFORE" << std::endl;
+                                              closesocket(sh.socket_);
+                                              std::cout << "socket : " << sh.socket_ << " closesocket AFTER" << std::endl;
+                                          }
+                                          catch (std::exception &e) {
+                                              std::cout << e.what() << std::endl;
+                                          }
+                                          catch (...) {
+                                          }
+                                      });
+
+                        // クローズしたソケットをリストから削除
+                        sockets_.erase(result, sockets_.end());
+                    } // Scoped Lock end
+                }
+            }
+            catch (std::exception &e) {
+                std::cout << e.what() << std::endl;
+            }
+        }
+
+        const int max_;
+        std::vector<SocketHolder> sockets_;
+        std::thread thread_;
+        std::mutex mt_;
+    };
+
     class ThreadsMap {
     public:
         ThreadsMap(int max)
@@ -30,7 +201,7 @@ namespace PapierMache {
         {
         }
         ThreadsMap()
-            : max_{10}
+            : max_{20}
         {
         }
         ~ThreadsMap()
@@ -104,27 +275,26 @@ namespace PapierMache {
 
     class Receiver {
     public:
-        Receiver(const SOCKET clientSocket, ThreadsMap &refThreadMap)
-            : clientSocket_{clientSocket},
-              refThreadsMap_{refThreadMap}
+        Receiver(ThreadsMap &refThreadsMap)
+            : refThreadsMap_{refThreadsMap}
         {
         }
 
         ~Receiver()
         {
             try {
-                // コネクションをシャットダウン
-                int shutDownResult = 0;
-                std::cout << "socket : " << clientSocket_ << " shutdown BEFORE" << std::endl;
-                shutDownResult = shutdown(clientSocket_, SD_BOTH);
-                std::cout << "socket : " << clientSocket_ << " shutdown AFTER" << std::endl;
-                if (shutDownResult == SOCKET_ERROR) {
-                    std::cout << "socket : " << clientSocket_ << " shutdown failed with error: " << WSAGetLastError() << std::endl;
-                }
-                // コネクションをクローズ
-                std::cout << "socket : " << clientSocket_ << " closesocket BEFORE" << std::endl;
-                closesocket(clientSocket_);
-                std::cout << "socket : " << clientSocket_ << " closesocket AFTER" << std::endl;
+                // // コネクションをシャットダウン
+                // int shutDownResult = 0;
+                // std::cout << "socket : " << clientSocket_ << " shutdown BEFORE" << std::endl;
+                // shutDownResult = shutdown(clientSocket_, SD_BOTH);
+                // std::cout << "socket : " << clientSocket_ << " shutdown AFTER" << std::endl;
+                // if (shutDownResult == SOCKET_ERROR) {
+                //     std::cout << "socket : " << clientSocket_ << " shutdown failed with error: " << WSAGetLastError() << std::endl;
+                // }
+                // // コネクションをクローズ
+                // std::cout << "socket : " << clientSocket_ << " closesocket BEFORE" << std::endl;
+                // closesocket(clientSocket_);
+                // std::cout << "socket : " << clientSocket_ << " closesocket AFTER" << std::endl;
 
                 refThreadsMap_.setFinishedFlag(std::this_thread::get_id());
             }
@@ -134,7 +304,7 @@ namespace PapierMache {
             }
         }
 
-        void receive()
+        void receive(const SOCKET clientSocket)
         {
             const int DEFAULT_BUFLEN = 512;
             // const int DEFAULT_BUFLEN = 512;
@@ -160,14 +330,14 @@ namespace PapierMache {
                     ++count;
                     memset(recvBuf, 0, sizeof(recvBuf));
                     std::cout << "-----" << count << ": " << recvBuf << std::endl;
-                    std::cout << "socket : " << clientSocket_ << " recv BEFORE" << std::endl;
-                    result = recv(clientSocket_, recvBuf, sizeof(recvBuf), 0);
-                    std::cout << "socket : " << clientSocket_ << " recv AFTER" << std::endl;
+                    std::cout << "socket : " << clientSocket << " recv BEFORE" << std::endl;
+                    result = recv(clientSocket, recvBuf, sizeof(recvBuf), 0);
+                    std::cout << "socket : " << clientSocket << " recv AFTER" << std::endl;
                     std::cout << "-----" << count << ": " << recvBuf << std::endl;
                     if (result > 0) {
                         // 本来ならばクライアントからの要求内容をパースすべきです
                         // std::cout << "-----" << count << ": " << recvBuf << std::endl;
-                        // std::cout << "socket : " << clientSocket_ << " recv success." << std::endl;
+                        // std::cout << "socket : " << clientSocket << " recv success." << std::endl;
 
                         recvData << recvBuf;
                         // std::cout << "-----" << count << ": recvData " << recvData.str() << std::endl;
@@ -235,11 +405,11 @@ namespace PapierMache {
                             }
                             std::memcpy(buf, oss.str().c_str(), len);
                             std::cout << "-----" << count << ": " << buf << std::endl;
-                            iSendResult = send(clientSocket_, buf, len, 0);
+                            iSendResult = send(clientSocket, buf, len, 0);
                             if (iSendResult == SOCKET_ERROR) {
-                                std::cout << "socket : " << clientSocket_ << " send failed with error: " << WSAGetLastError() << std::endl;
+                                std::cout << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << std::endl;
                             }
-                            break;
+                            // break;
                         }
                         // std::cout << recvData.str() << std::endl;
                         //   if (recvData.str().at(recvData.str().length() -1) == '\r\n') {
@@ -255,29 +425,29 @@ namespace PapierMache {
                         //     len = oss.str().size();
                         // }
                         // std::memcpy(buf, oss.str().c_str(), len);
-                        // iSendResult = send(clientSocket_, buf, len, 0);
-                        // // iSendResult = send(clientSocket_, buf, result, 0);
+                        // iSendResult = send(clientSocket, buf, len, 0);
+                        // // iSendResult = send(clientSocket, buf, result, 0);
                         // if (iSendResult == SOCKET_ERROR) {
-                        //     std::cout << "socket : " << clientSocket_ << " send failed with error: " << WSAGetLastError() << std::endl;
+                        //     std::cout << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << std::endl;
                         // }
                         // std::cout << recvData.str() << std::endl;
                         recvData.str("");
                         recvData.clear(std::stringstream::goodbit);
-                        std::cout << "socket : " << clientSocket_ << " Connection closing..." << std::endl;
+                        std::cout << "socket : " << clientSocket << " Connection closing..." << std::endl;
                     }
                     else {
                         // std::cout << recvData.str() << std::endl;
                         recvData.str("");
                         recvData.clear(std::stringstream::goodbit);
-                        std::cout << "socket : " << clientSocket_ << " recv failed with error: " << WSAGetLastError() << std::endl;
+                        std::cout << "socket : " << clientSocket << " recv failed with error: " << WSAGetLastError() << std::endl;
                     }
                 } while (result > 0);
             }
             catch (std::exception &e) {
-                std::cout << "socket : " << clientSocket_ << " error : " << e.what() << std::endl;
+                std::cout << "socket : " << clientSocket << " error : " << e.what() << std::endl;
             }
             catch (...) {
-                std::cout << "socket : " << clientSocket_ << " unexpected error." << std::endl;
+                std::cout << "socket : " << clientSocket << " unexpected error." << std::endl;
             }
         }
 
@@ -289,19 +459,14 @@ namespace PapierMache {
         Receiver &operator=(Receiver) = delete;
 
     private:
-        HttpRequest parseRecvData(const std::string &s) const
-        {
-        }
-
-        const SOCKET clientSocket_;
         ThreadsMap &refThreadsMap_;
     };
 
     class WebServer {
     public:
-        WebServer(const std::string port, const int maxThreads)
+        WebServer(const std::string port, const int maxSockets)
             : port_{port},
-              maxThreads_{maxThreads},
+              maxSockets_{maxSockets},
               listenSocket_{INVALID_SOCKET},
               isInitialized_{false}
         {
@@ -309,7 +474,7 @@ namespace PapierMache {
 
         WebServer()
             : port_{"27015"},
-              maxThreads_{10},
+              maxSockets_{10},
               listenSocket_{INVALID_SOCKET},
               isInitialized_{false}
         {
@@ -398,6 +563,7 @@ namespace PapierMache {
                     std::cout << "listen failed with error: " << WSAGetLastError() << std::endl;
                     return 1;
                 }
+
                 isInitialized_ = true;
                 return 0;
             }
@@ -420,7 +586,10 @@ namespace PapierMache {
 
             try {
                 SOCKET clientSocket = INVALID_SOCKET;
-                ThreadsMap threads;
+
+                // SocketManagerを生成して開始する
+                SocketManager socketManager;
+                socketManager.startMonitor();
                 while (1) {
 
                     std::cout << "accept BEFORE" << std::endl;
@@ -432,15 +601,18 @@ namespace PapierMache {
                         return 1;
                     }
 
-                    if (threads.isFull()) {
-                        std::cout << "number of threads is upper limits." << std::endl;
+                    if (socketManager.isFull()) {
+                        std::cout << "number of sockets is upper limits." << std::endl;
                         return 1;
                     }
 
-                    std::thread t{[clientSocket, &threads] {
+                    socketManager.addSocket(clientSocket);
+
+                    // 別スレッドで受信処理をする
+                    std::thread t{[clientSocket, this] {
                         try {
-                            Receiver receiver{clientSocket, threads};
-                            receiver.receive();
+                            Receiver receiver{threadsMap_};
+                            receiver.receive(clientSocket);
                         }
                         catch (std::exception &e) {
                         }
@@ -448,9 +620,9 @@ namespace PapierMache {
                         }
                     }};
 
-                    threads.addThread(std::move(t));
-                    threads.cleanUp();
-                    std::cout << "number of threads is : " << threads.size() << std::endl;
+                    threadsMap_.addThread(std::move(t));
+                    threadsMap_.cleanUp();
+                    std::cout << "number of threads is : " << threadsMap_.size() << std::endl;
                 }
 
                 return 0;
@@ -467,10 +639,11 @@ namespace PapierMache {
 
     private:
         const std::string port_;
-        const int maxThreads_;
+        const int maxSockets_;
         SOCKET listenSocket_;
-        bool isInitialized_;
         HandlerTree handlerTree_;
+        ThreadsMap threadsMap_;
+        bool isInitialized_;
         std::mutex mt_;
     };
 
