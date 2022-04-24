@@ -191,15 +191,14 @@ namespace PapierMache {
                                 ref.setStatus(SocketStatus::TO_CLOSE);
                             }
                         });
-
                         // クローズすべきソケットを判別して処理する
-                        auto result = std::remove_if(sockets_.begin(), sockets_.end(),
-                                                     [](SocketHolder sh) {
-                                                         return sh.status() == SocketStatus::TO_CLOSE;
-                                                     });
-
+                        std::vector<SocketHolder> temp;
+                        std::remove_copy_if(sockets_.begin(), sockets_.end(), std::back_inserter(temp),
+                                            [](SocketHolder sh) {
+                                                return sh.status() != SocketStatus::TO_CLOSE;
+                                            });
                         // クローズ処理
-                        std::for_each(result, sockets_.end(), [](SocketHolder sh) {
+                        std::for_each(temp.begin(), temp.end(), [](SocketHolder sh) {
                             try {
                                 // コネクションをシャットダウン
                                 int shutDownResult = 0;
@@ -221,8 +220,14 @@ namespace PapierMache {
                             }
                         });
 
-                        // クローズしたソケットをリストから削除
+                        // リストに有効なソケットのみを残す
+                        auto result = std::remove_if(sockets_.begin(), sockets_.end(),
+                                                     [](SocketHolder sh) {
+                                                         return sh.status() == SocketStatus::TO_CLOSE;
+                                                     });
+                        std::cout << "----------1.sockets_.size : " << sockets_.size() << std::endl;
                         sockets_.erase(result, sockets_.end());
+                        std::cout << "----------2.sockets_.size : " << sockets_.size() << std::endl;
                     } // Scoped Lock end
                 }
             }
