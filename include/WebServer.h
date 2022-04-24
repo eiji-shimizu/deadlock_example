@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstring>
 #include <exception>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -32,8 +33,8 @@ namespace PapierMache {
         PROCESSING,
         SENDING,
         COMPLETED,
-        DISCONNECT,
-        TO_CLOSE
+        TO_CLOSE,
+        SOCKET_IS_NONE // ソケットが見つからない場合に用いる
     };
 
     class SocketManager;
@@ -43,7 +44,8 @@ namespace PapierMache {
     public:
         SocketHolder(SOCKET socket, SocketStatus status)
             : socket_{socket},
-              status_{status}
+              status_{status},
+              lastTime_{std::chrono::system_clock::now()}
         {
         }
 
@@ -55,6 +57,7 @@ namespace PapierMache {
             }
             socket_ = rhs.socket_;
             status_ = rhs.status_;
+            lastTime_ = rhs.lastTime_;
         }
 
         SocketStatus status() const { return status_; }
@@ -64,7 +67,12 @@ namespace PapierMache {
             status_ = status;
         }
 
-        bool isTheSame(const SOCKET s)
+        void setLastTime(const std::chrono::system_clock::time_point lastTime)
+        {
+            lastTime_ = lastTime;
+        }
+
+        bool isTheSame(const SOCKET s) const
         {
             return socket_ == s;
         }
@@ -72,16 +80,20 @@ namespace PapierMache {
     private:
         SOCKET socket_;
         SocketStatus status_;
+        // このソケットで最後にクライアントとやり取りした時間を設定する
+        std::chrono::system_clock::time_point lastTime_;
     };
 
     class SocketManager {
     public:
-        SocketManager(int max)
-            : max_{max}
+        SocketManager(int max, int timeout)
+            : max_{max},
+              timeout_{timeout}
         {
         }
         SocketManager()
-            : max_{10}
+            : max_{10},
+              timeout_{15}
         {
         }
         ~SocketManager()
@@ -121,6 +133,18 @@ namespace PapierMache {
             return false;
         };
 
+        bool setLastTime(SOCKET s, const std::chrono::system_clock::time_point lastTime)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            for (SocketHolder &sh : sockets_) {
+                if (sh.isTheSame(s)) {
+                    sh.setLastTime(lastTime);
+                    return true;
+                }
+            }
+            return false;
+        }
+
         bool setStatus(SOCKET s, const SocketStatus status)
         {
             std::lock_guard<std::mutex> lock{mt_};
@@ -131,6 +155,17 @@ namespace PapierMache {
                 }
             }
             return false;
+        }
+
+        SocketStatus getStatus(SOCKET s)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            for (const SocketHolder &sh : sockets_) {
+                if (sh.isTheSame(s)) {
+                    return sh.status();
+                }
+            }
+            return SocketStatus::SOCKET_IS_NONE;
         }
 
         // コピー禁止
@@ -148,6 +183,15 @@ namespace PapierMache {
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                     { // Scoped Lock start
                         std::lock_guard<std::mutex> lock{mt_};
+                        // タイムアウトしたとみなせるソケットには状態を設定
+                        std::for_each(sockets_.begin(), sockets_.end(), [timeout = timeout_](SocketHolder &ref) {
+                            std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+                            std::chrono::system_clock::time_point tp = ref.lastTime_ + std::chrono::seconds(timeout);
+                            if (!(now < tp) && ref.status() == SocketStatus::RECV) {
+                                ref.setStatus(SocketStatus::TO_CLOSE);
+                            }
+                        });
+
                         // クローズすべきソケットを判別して処理する
                         auto result = std::remove_if(sockets_.begin(), sockets_.end(),
                                                      [](SocketHolder sh) {
@@ -155,28 +199,27 @@ namespace PapierMache {
                                                      });
 
                         // クローズ処理
-                        std::for_each(result, sockets_.end(),
-                                      [](SocketHolder sh) {
-                                          try {
-                                              // コネクションをシャットダウン
-                                              int shutDownResult = 0;
-                                              std::cout << "socket : " << sh.socket_ << " shutdown BEFORE" << std::endl;
-                                              shutDownResult = shutdown(sh.socket_, SD_BOTH);
-                                              std::cout << "socket : " << sh.socket_ << " shutdown AFTER" << std::endl;
-                                              if (shutDownResult == SOCKET_ERROR) {
-                                                  std::cout << "socket : " << sh.socket_ << " shutdown failed with error: " << WSAGetLastError() << std::endl;
-                                              }
-                                              // コネクションをクローズ
-                                              std::cout << "socket : " << sh.socket_ << " closesocket BEFORE" << std::endl;
-                                              closesocket(sh.socket_);
-                                              std::cout << "socket : " << sh.socket_ << " closesocket AFTER" << std::endl;
-                                          }
-                                          catch (std::exception &e) {
-                                              std::cout << e.what() << std::endl;
-                                          }
-                                          catch (...) {
-                                          }
-                                      });
+                        std::for_each(result, sockets_.end(), [](SocketHolder sh) {
+                            try {
+                                // コネクションをシャットダウン
+                                int shutDownResult = 0;
+                                std::cout << "socket : " << sh.socket_ << " shutdown BEFORE" << std::endl;
+                                shutDownResult = shutdown(sh.socket_, SD_BOTH);
+                                std::cout << "socket : " << sh.socket_ << " shutdown AFTER" << std::endl;
+                                if (shutDownResult == SOCKET_ERROR) {
+                                    std::cout << "socket : " << sh.socket_ << " shutdown failed with error: " << WSAGetLastError() << std::endl;
+                                }
+                                // コネクションをクローズ
+                                std::cout << "socket : " << sh.socket_ << " closesocket BEFORE" << std::endl;
+                                closesocket(sh.socket_);
+                                std::cout << "socket : " << sh.socket_ << " closesocket AFTER" << std::endl;
+                            }
+                            catch (std::exception &e) {
+                                std::cout << e.what() << std::endl;
+                            }
+                            catch (...) {
+                            }
+                        });
 
                         // クローズしたソケットをリストから削除
                         sockets_.erase(result, sockets_.end());
@@ -190,6 +233,7 @@ namespace PapierMache {
 
         const int max_;
         std::vector<SocketHolder> sockets_;
+        const int timeout_;
         std::thread thread_;
         std::mutex mt_;
     };
@@ -316,9 +360,19 @@ namespace PapierMache {
                 do {
                     ++count;
                     memset(recvBuf, 0, sizeof(recvBuf));
-                    std::cout << "-----" << count << ": " << recvBuf << std::endl;
+                    SocketStatus s = refSocketManager_.getStatus(clientSocket);
+                    if (s == SocketStatus::TO_CLOSE || s == SocketStatus::SOCKET_IS_NONE) {
+                        // この場合は処理を進められないのでループを抜ける
+                        break;
+                    }
+
                     std::cout << "socket : " << clientSocket << " recv BEFORE" << std::endl;
+                    if (s == SocketStatus::CREATED || s == SocketStatus::COMPLETED) {
+                        // この場合のみRECV状態を設定
+                        refSocketManager_.setStatus(clientSocket, SocketStatus::RECV);
+                    }
                     result = recv(clientSocket, recvBuf, sizeof(recvBuf), 0);
+                    refSocketManager_.setStatus(clientSocket, SocketStatus::RECEIVING);
                     std::cout << "socket : " << clientSocket << " recv AFTER" << std::endl;
                     std::cout << "-----" << count << ": " << recvBuf << std::endl;
                     if (result > 0) {
@@ -382,6 +436,7 @@ namespace PapierMache {
                             }
 
                             // ハンドラーによるリクエスト処理
+                            refSocketManager_.setStatus(clientSocket, SocketStatus::PROCESSING);
                             std::cout << "-----" << count << ": request " << request.toString() << std::endl;
 
                             std::cout << "----------------------" << count << std::endl;
@@ -391,11 +446,14 @@ namespace PapierMache {
                             }
                             std::memcpy(buf, oss.str().c_str(), len);
                             std::cout << "-----" << count << ": " << buf << std::endl;
+                            refSocketManager_.setStatus(clientSocket, SocketStatus::SENDING);
                             iSendResult = send(clientSocket, buf, len, 0);
                             if (iSendResult == SOCKET_ERROR) {
                                 std::cout << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << std::endl;
                             }
-                            // break;
+                            // 最終送受信時刻を更新してから状態を設定する
+                            refSocketManager_.setLastTime(clientSocket, std::chrono::system_clock::now());
+                            refSocketManager_.setStatus(clientSocket, SocketStatus::COMPLETED);
                         }
                     }
                     else if (result == 0) {
@@ -573,6 +631,7 @@ namespace PapierMache {
                         return 1;
                     }
 
+                    // TODO: threadとsocketの上限処理
                     if (socketManager.isFull()) {
                         std::cout << "number of sockets is upper limits." << std::endl;
                         return 1;
