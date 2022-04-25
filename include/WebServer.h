@@ -157,6 +157,31 @@ namespace PapierMache {
             return false;
         }
 
+        // sの現在の状態に対して設定可能なものであれば新たに状態を設定する
+        // 戻り値は設定前の状態
+        SocketStatus setStatusIfEnable(SOCKET s, const SocketStatus status)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            for (SocketHolder &sh : sockets_) {
+                if (sh.isTheSame(s)) {
+                    if (status == SocketStatus::RECV) {
+                        if (sh.status() == SocketStatus::RECEIVING) {
+                            // 既に受信中の場合はRECVは設定しない
+                            return sh.status();
+                        }
+                    }
+                    if (sh.status() == SocketStatus::TO_CLOSE || sh.status() == SocketStatus::SOCKET_IS_NONE) {
+                        // 有効なソケットではない場合
+                        return sh.status();
+                    }
+
+                    sh.setStatus(status);
+                    return sh.status();
+                }
+            }
+            return SocketStatus::SOCKET_IS_NONE;
+        }
+
         SocketStatus getStatus(SOCKET s)
         {
             std::lock_guard<std::mutex> lock{mt_};
@@ -365,24 +390,22 @@ namespace PapierMache {
                 do {
                     ++count;
                     memset(recvBuf, 0, sizeof(recvBuf));
-                    SocketStatus s = refSocketManager_.getStatus(clientSocket);
+                    std::cout << "socket : " << clientSocket << " recv BEFORE" << std::endl;
+                    SocketStatus s = refSocketManager_.setStatusIfEnable(clientSocket, SocketStatus::RECV);
+                    if (s == SocketStatus::TO_CLOSE || s == SocketStatus::SOCKET_IS_NONE) {
+                        // この場合は処理を進められないのでループを抜ける
+                        break;
+                    }
+                    result = recv(clientSocket, recvBuf, sizeof(recvBuf), 0);
+                    s = refSocketManager_.setStatusIfEnable(clientSocket, SocketStatus::RECEIVING);
+                    std::cout << "socket : " << clientSocket << " recv AFTER" << std::endl;
+                    std::cout << "-----" << count << ": " << recvBuf << std::endl;
                     if (s == SocketStatus::TO_CLOSE || s == SocketStatus::SOCKET_IS_NONE) {
                         // この場合は処理を進められないのでループを抜ける
                         break;
                     }
 
-                    std::cout << "socket : " << clientSocket << " recv BEFORE" << std::endl;
-                    if (s == SocketStatus::CREATED || s == SocketStatus::COMPLETED) {
-                        // この場合のみRECV状態を設定
-                        refSocketManager_.setStatus(clientSocket, SocketStatus::RECV);
-                    }
-                    result = recv(clientSocket, recvBuf, sizeof(recvBuf), 0);
-                    refSocketManager_.setStatus(clientSocket, SocketStatus::RECEIVING);
-                    std::cout << "socket : " << clientSocket << " recv AFTER" << std::endl;
-                    std::cout << "-----" << count << ": " << recvBuf << std::endl;
                     if (result > 0) {
-                        // std::cout << "-----" << count << ": " << recvBuf << std::endl;
-                        // std::cout << "socket : " << clientSocket << " recv success." << std::endl;
 
                         recvData << recvBuf;
                         // std::cout << "-----" << count << ": recvData " << recvData.str() << std::endl;
@@ -427,9 +450,9 @@ namespace PapierMache {
                                         // noop
                                     }
                                     iss.putback(c);
-                                    std::string s;
-                                    if (std::getline(iss, s)) {
-                                        requestHeaderValue << s;
+                                    std::string str;
+                                    if (std::getline(iss, str)) {
+                                        requestHeaderValue << str;
                                     }
 
                                     request.headers.insert(std::make_pair(requestHeaderkey.str(), requestHeaderValue.str()));
