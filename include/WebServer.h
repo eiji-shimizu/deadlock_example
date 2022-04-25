@@ -77,6 +77,22 @@ namespace PapierMache {
             return socket_ == s;
         }
 
+        void shutDownAndClose()
+        {
+            // コネクションをシャットダウン
+            int shutDownResult = 0;
+            std::cout << "socket : " << socket_ << " shutdown BEFORE" << std::endl;
+            shutDownResult = shutdown(socket_, SD_BOTH);
+            std::cout << "socket : " << socket_ << " shutdown AFTER" << std::endl;
+            if (shutDownResult == SOCKET_ERROR) {
+                std::cout << "socket : " << socket_ << " shutdown failed with error: " << WSAGetLastError() << std::endl;
+            }
+            // コネクションをクローズ
+            std::cout << "socket : " << socket_ << " closesocket BEFORE" << std::endl;
+            closesocket(socket_);
+            std::cout << "socket : " << socket_ << " closesocket AFTER" << std::endl;
+        }
+
     private:
         SOCKET socket_;
         SocketStatus status_;
@@ -115,12 +131,6 @@ namespace PapierMache {
                 catch (...) {
                 }
             }};
-        }
-
-        bool isFull()
-        {
-            std::lock_guard<std::mutex> lock{mt_};
-            return sockets_.size() == max_;
         }
 
         bool addSocket(const SOCKET s)
@@ -193,6 +203,12 @@ namespace PapierMache {
             return SocketStatus::SOCKET_IS_NONE;
         }
 
+        void addOverCapacitySocket(const SOCKET s)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            overCapacity_.push_back({s, SocketStatus::TO_CLOSE});
+        };
+
         // コピー禁止
         SocketManager(const SocketManager &) = delete;
         SocketManager &operator=(const SocketManager &) = delete;
@@ -225,18 +241,7 @@ namespace PapierMache {
                         // クローズ処理
                         std::for_each(temp.begin(), temp.end(), [](SocketHolder sh) {
                             try {
-                                // コネクションをシャットダウン
-                                int shutDownResult = 0;
-                                std::cout << "socket : " << sh.socket_ << " shutdown BEFORE" << std::endl;
-                                shutDownResult = shutdown(sh.socket_, SD_BOTH);
-                                std::cout << "socket : " << sh.socket_ << " shutdown AFTER" << std::endl;
-                                if (shutDownResult == SOCKET_ERROR) {
-                                    std::cout << "socket : " << sh.socket_ << " shutdown failed with error: " << WSAGetLastError() << std::endl;
-                                }
-                                // コネクションをクローズ
-                                std::cout << "socket : " << sh.socket_ << " closesocket BEFORE" << std::endl;
-                                closesocket(sh.socket_);
-                                std::cout << "socket : " << sh.socket_ << " closesocket AFTER" << std::endl;
+                                sh.shutDownAndClose();
                             }
                             catch (std::exception &e) {
                                 std::cout << e.what() << std::endl;
@@ -253,6 +258,20 @@ namespace PapierMache {
                         std::cout << "----------1.sockets_.size : " << sockets_.size() << std::endl;
                         sockets_.erase(result, sockets_.end());
                         std::cout << "----------2.sockets_.size : " << sockets_.size() << std::endl;
+
+                        // 容量オーバーであったソケットがあればクローズ
+                        std::for_each(overCapacity_.begin(), overCapacity_.end(), [](SocketHolder sh) {
+                            try {
+                                sh.shutDownAndClose();
+                            }
+                            catch (std::exception &e) {
+                                std::cout << e.what() << std::endl;
+                            }
+                            catch (...) {
+                            }
+                        });
+                        overCapacity_.clear();
+
                     } // Scoped Lock end
                 }
             }
@@ -263,6 +282,8 @@ namespace PapierMache {
 
         const int max_;
         std::vector<SocketHolder> sockets_;
+        // 管理対象数を超えて生成されたソケットを一時的に格納してほどなくクローズするためのvector
+        std::vector<SocketHolder> overCapacity_;
         const int timeout_;
         std::thread thread_;
         std::mutex mt_;
@@ -270,12 +291,12 @@ namespace PapierMache {
 
     class ThreadsMap {
     public:
-        ThreadsMap(int max)
-            : max_{max}
+        ThreadsMap(int cleanUpPoint)
+            : cleanUpPoint_{cleanUpPoint}
         {
         }
         ThreadsMap()
-            : max_{20}
+            : cleanUpPoint_{10}
         {
         }
         ~ThreadsMap()
@@ -296,21 +317,12 @@ namespace PapierMache {
             return threads_.size();
         }
 
-        bool isFull()
-        {
-            std::lock_guard<std::mutex> lock{mt_};
-            return threads_.size() == max_;
-        }
-
         bool addThread(std::thread &&t)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            if (threads_.size() < max_) {
-                threads_.insert(std::make_pair(t.get_id(), std::move(t)));
-                finishedFlag_.try_emplace(t.get_id(), false);
-                return true;
-            }
-            return false;
+            threads_.insert(std::make_pair(t.get_id(), std::move(t)));
+            finishedFlag_.try_emplace(t.get_id(), false);
+            return true;
         }
 
         void setFinishedFlag(const std::thread::id id)
@@ -322,8 +334,7 @@ namespace PapierMache {
         void cleanUp()
         {
             std::lock_guard<std::mutex> lock{mt_};
-            // スレッド数が最大の半分より多ければクリーンアップする
-            if (threads_.size() > (max_ / 2)) {
+            if (threads_.size() > cleanUpPoint_) {
                 std::vector<std::thread::id> vec;
                 for (const auto &p : finishedFlag_) {
                     if (p.second) {
@@ -341,7 +352,8 @@ namespace PapierMache {
         }
 
     private:
-        const int max_;
+        // この数よりスレッド数が多い場合にはクリーンアップが有効になる
+        const int cleanUpPoint_;
         std::map<std::thread::id, std::thread> threads_;
         std::map<std::thread::id, bool> finishedFlag_;
         std::mutex mt_;
@@ -401,8 +413,11 @@ namespace PapierMache {
                     std::cout << "socket : " << clientSocket << " recv AFTER" << std::endl;
                     std::cout << "-----" << count << ": " << recvBuf << std::endl;
                     if (s == SocketStatus::TO_CLOSE || s == SocketStatus::SOCKET_IS_NONE) {
-                        // この場合は処理を進められないのでループを抜ける
-                        break;
+                        // この場合は処理を進められないのでrecvが正常終了であった場合はここでループを抜ける
+                        if (result > 0) {
+                            break;
+                        }
+                        // エラーがあった場合は以下でログ出力
                     }
 
                     if (result > 0) {
@@ -659,13 +674,12 @@ namespace PapierMache {
                         return 1;
                     }
 
-                    // TODO: threadとsocketの上限処理
-                    if (socketManager.isFull()) {
+                    if (!socketManager.addSocket(clientSocket)) {
+                        // socketManagerの管理ソケット数が上限であった場合
                         std::cout << "number of sockets is upper limits." << std::endl;
-                        return 1;
+                        socketManager.addOverCapacitySocket(clientSocket);
+                        continue;
                     }
-
-                    socketManager.addSocket(clientSocket);
 
                     // 別スレッドで受信処理をする
                     std::thread t{[clientSocket, &socketManager, &threadsMap] {
