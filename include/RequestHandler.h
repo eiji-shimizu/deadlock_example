@@ -5,6 +5,8 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <iostream>
 #include <map>
@@ -18,7 +20,7 @@ namespace PapierMache {
 
     struct HandlerResult {
         HttpResponseStatusCode status;
-        std::string responseBody;
+        std::vector<std::byte> responseBody;
     };
 
     class RequestHandler {
@@ -46,6 +48,7 @@ namespace PapierMache {
     };
 
     class DefaultHandler : public RequestHandler {
+    public:
         DefaultHandler(std::initializer_list<HttpRequestMethod> supportMethods)
             : RequestHandler{supportMethods}
         {
@@ -53,10 +56,35 @@ namespace PapierMache {
 
         virtual ~DefaultHandler() {}
 
+        // 単にurlで指定されたリソースを読み込んで返す
+        // ただしルート(/)が指定された場合はindex.htmlを返す
         virtual HandlerResult handle(const HttpRequest request)
         {
             std::cout << "DefaultHandler::handle" << std::endl;
-            return HandlerResult{};
+
+            std::filesystem::path resourcePath{"sites"};
+            if (request.path == "/") {
+                resourcePath /= "index.html";
+            }
+            else if (request.path.length() > 0 && request.path.at(0) == '/') {
+                resourcePath /= trim(request.path, '/');
+            }
+
+            std::byte b;
+            std::ifstream ifs{resourcePath, std::ios_base::binary};
+            std::vector<std::byte> v;
+            while (ifs.read(as_bytes(b), sizeof(std::byte))) {
+                v.push_back(b);
+            }
+
+            HandlerResult hr{};
+            hr.responseBody = std::move(v);
+            return hr;
+        }
+
+    private:
+        void read(const std::string path, std::string &output)
+        {
         }
     };
 
@@ -217,7 +245,10 @@ namespace PapierMache {
 
     class HandlerTree {
     public:
-        HandlerTree() {}
+        HandlerTree()
+            : defaultHandlerNode_{"", std::make_unique<DefaultHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))}
+        {
+        }
         ~HandlerTree() {}
 
         // 引数のノードをHttpリクエストメソッドごとのルートノードとして追加する
@@ -245,7 +276,7 @@ namespace PapierMache {
                     return result;
                 }
             }
-            return HandlerTreeNode::nullObject();
+            return defaultHandlerNode_;
         }
 
         // コピー禁止
@@ -257,6 +288,7 @@ namespace PapierMache {
 
     private:
         std::map<std::string, HandlerTreeNode> rootNodes_;
+        HandlerTreeNode defaultHandlerNode_;
     };
 
 } // namespace PapierMache

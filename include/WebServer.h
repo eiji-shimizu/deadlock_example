@@ -390,15 +390,7 @@ namespace PapierMache {
                 int result;
                 int iSendResult;
 
-                // 仮の応答用メッセージ
                 memset(buf, 0, sizeof(buf));
-                std::ostringstream oss{""};
-                oss << "HTTP/1.1 200 OK\r\n"
-                    << "Content-Length: 7\r\n"
-                    << "Content-Type: text/html\r\n"
-                    << "\r\n"
-                    << "HELLO\r\n";
-
                 std::ostringstream recvData{""};
                 int count = 0;
                 do {
@@ -489,26 +481,45 @@ namespace PapierMache {
                             std::cout << "socket : " << clientSocket << " findHandlerNode BEFORE" << std::endl;
                             HandlerTreeNode &node = refHandlerTree_.findHandlerNode(request.path);
                             std::cout << "socket : " << clientSocket << " findHandlerNode AFTER" << std::endl;
+
+                            HandlerResult hr;
+                            size_t contentLength = 0;
                             if (node.isHandlerNull()) {
                                 // TODO : 対応するurlがない場合
                                 std::cout << "socket : " << clientSocket << " invalid url." << std::endl;
                             }
                             else {
-                                node.handler().handle(request);
+                                hr = node.handler().handle(request);
+                                contentLength = hr.responseBody.size();
                             }
 
                             std::cout << "----------------------" << count << std::endl;
-                            size_t len = sizeof(buf);
-                            if (sizeof(buf) > oss.str().size()) {
-                                len = oss.str().size();
+                            // 仮の応答メッセージ(ヘッダ部分)
+                            std::ostringstream oss{""};
+                            oss << "HTTP/1.1 200 OK\r\n"
+                                << "Content-Length:" << contentLength << "\r\n"
+                                << "Content-Type: text/html\r\n"
+                                << "\r\n";
+
+                            std::vector<std::byte> v;
+                            for (const char ch : oss.str()) {
+                                v.push_back(static_cast<std::byte>(ch));
                             }
-                            std::memcpy(buf, oss.str().c_str(), len);
-                            std::cout << "-----" << count << ": " << buf << std::endl;
+                            for (const std::byte b : hr.responseBody) {
+                                v.push_back(b);
+                            }
+
+                            size_t len = sizeof(buf);
+                            if (sizeof(buf) > v.size()) {
+                                len = v.size();
+                            }
+                            std::memcpy(buf, v.data(), len);
                             refSocketManager_.setStatus(clientSocket, SocketStatus::SENDING);
                             iSendResult = send(clientSocket, buf, len, 0);
                             if (iSendResult == SOCKET_ERROR) {
                                 std::cout << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << std::endl;
                             }
+
                             // 最終送受信時刻を更新してから状態を設定する
                             refSocketManager_.setLastTime(clientSocket, std::chrono::system_clock::now());
                             refSocketManager_.setStatus(clientSocket, SocketStatus::COMPLETED);

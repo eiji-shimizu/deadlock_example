@@ -33,7 +33,6 @@ namespace PapierMache {
         while (*rit == target) {
             ++rit;
         }
-        size_t index0 = std::distance(s.cbegin(), it);
         size_t index = std::distance(s.crbegin(), rit);
         auto first = it;
         auto end = std::next(s.cbegin(), s.length() - index);
@@ -41,6 +40,13 @@ namespace PapierMache {
             std::for_each(first, end, [&oss](char c) { oss << c; });
         }
         return oss.str();
+    }
+
+    template <typename T>
+    char *as_bytes(T &i)
+    {
+        void *addr = &i;
+        return static_cast<char *>(addr);
     }
 
 }
