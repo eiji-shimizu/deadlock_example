@@ -58,6 +58,7 @@ namespace PapierMache {
             socket_ = rhs.socket_;
             status_ = rhs.status_;
             lastTime_ = rhs.lastTime_;
+            return *this;
         }
 
         SocketStatus status() const { return status_; }
@@ -361,9 +362,10 @@ namespace PapierMache {
 
     class Receiver {
     public:
-        Receiver(SocketManager &refSocketManager, ThreadsMap &refThreadsMap)
+        Receiver(SocketManager &refSocketManager, ThreadsMap &refThreadsMap, HandlerTree &refHandlerTree)
             : refSocketManager_{refSocketManager},
-              refThreadsMap_{refThreadsMap}
+              refThreadsMap_{refThreadsMap},
+              refHandlerTree_{refHandlerTree}
         {
         }
 
@@ -477,10 +479,23 @@ namespace PapierMache {
                                     requestHeaderValue.clear(std::stringstream::goodbit);
                                 }
                             }
+                            // 受信完了したのでクリアする
+                            recvData.str("");
+                            recvData.clear(std::stringstream::goodbit);
 
                             // ハンドラーによるリクエスト処理
                             refSocketManager_.setStatus(clientSocket, SocketStatus::PROCESSING);
                             std::cout << "-----" << count << ": request " << request.toString() << std::endl;
+                            std::cout << "socket : " << clientSocket << " findHandlerNode BEFORE" << std::endl;
+                            HandlerTreeNode &node = refHandlerTree_.findHandlerNode(request.path);
+                            std::cout << "socket : " << clientSocket << " findHandlerNode AFTER" << std::endl;
+                            if (node.isHandlerNull()) {
+                                // TODO : 対応するurlがない場合
+                                std::cout << "socket : " << clientSocket << " invalid url." << std::endl;
+                            }
+                            else {
+                                node.handler().handle(request);
+                            }
 
                             std::cout << "----------------------" << count << std::endl;
                             size_t len = sizeof(buf);
@@ -533,6 +548,7 @@ namespace PapierMache {
     private:
         SocketManager &refSocketManager_;
         ThreadsMap &refThreadsMap_;
+        HandlerTree &refHandlerTree_;
     };
 
     class WebServer {
@@ -586,6 +602,8 @@ namespace PapierMache {
                 handlerTree_.addRootNode({"/", std::make_unique<RootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
                 // deadlock_exampleのRequestHandlerのセット
                 handlerTree_.addRootNode({"dlex", std::make_unique<DLEXRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
+                // helloworldのRequestHandlerのセット
+                handlerTree_.addRootNode({"helloworld", std::make_unique<HelloWorldRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
 
                 WSADATA wsaData;
                 int iResult;
@@ -682,9 +700,9 @@ namespace PapierMache {
                     }
 
                     // 別スレッドで受信処理をする
-                    std::thread t{[clientSocket, &socketManager, &threadsMap] {
+                    std::thread t{[this, clientSocket, &socketManager, &threadsMap] {
                         try {
-                            Receiver receiver{socketManager, threadsMap};
+                            Receiver receiver{socketManager, threadsMap, this->handlerTree_};
                             receiver.receive(clientSocket);
                         }
                         catch (std::exception &e) {
