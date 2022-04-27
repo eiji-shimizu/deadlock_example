@@ -405,7 +405,7 @@ namespace PapierMache {
                     result = recv(clientSocket, recvBuf, sizeof(recvBuf), 0);
                     s = refSocketManager_.setStatusIfEnable(clientSocket, SocketStatus::RECEIVING);
                     std::cout << "socket : " << clientSocket << " recv AFTER" << std::endl;
-                    std::cout << "-----" << count << ": " << recvBuf << std::endl;
+                    // std::cout << "-----" << count << ": " << recvBuf << std::endl;
                     if (s == SocketStatus::TO_CLOSE || s == SocketStatus::SOCKET_IS_NONE) {
                         // この場合は処理を進められないのでrecvが正常終了であった場合はここでループを抜ける
                         if (result > 0) {
@@ -477,7 +477,6 @@ namespace PapierMache {
 
                             // ハンドラーによるリクエスト処理
                             refSocketManager_.setStatus(clientSocket, SocketStatus::PROCESSING);
-                            std::cout << "-----" << count << ": request " << request.toString() << std::endl;
                             std::cout << "socket : " << clientSocket << " findHandlerNode BEFORE" << std::endl;
                             HandlerTreeNode &node = refHandlerTree_.findHandlerNode(request.path);
                             std::cout << "socket : " << clientSocket << " findHandlerNode AFTER" << std::endl;
@@ -493,12 +492,14 @@ namespace PapierMache {
                                 contentLength = hr.responseBody.size();
                             }
 
-                            std::cout << "----------------------" << count << std::endl;
-                            // 仮の応答メッセージ(ヘッダ部分)
+                            // std::cout << "----------------------" << count << std::endl;
+                            //  仮の応答メッセージ(ヘッダ部分)
                             std::ostringstream oss{""};
-                            oss << "HTTP/1.1 200 OK\r\n"
+                            oss << "HTTP/1.1 "
+                                << "200"
+                                << " OK\r\n"
                                 << "Content-Length:" << contentLength << "\r\n"
-                                << "Content-Type: text/html\r\n"
+                                << "Content-Type: " << hr.mediaType << "\r\n"
                                 << "\r\n";
 
                             std::vector<std::byte> v;
@@ -508,7 +509,7 @@ namespace PapierMache {
                             for (const std::byte b : hr.responseBody) {
                                 v.push_back(b);
                             }
-                            
+
                             // 送信処理
                             size_t len = sizeof(buf);
                             size_t index = 0;
@@ -631,9 +632,11 @@ namespace PapierMache {
                 // RequestHandlerのセット
                 handlerTree_.addRootNode({"/", std::make_unique<RootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
                 // deadlock_exampleのRequestHandlerのセット
-                handlerTree_.addRootNode({"dlex", std::make_unique<DLEXRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
+                handlerTree_.addRootNode({"dlex", nullptr});
+                handlerTree_.findHandlerNode("dlex").addChildNode({"top", std::make_unique<DLEXRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
                 // helloworldのRequestHandlerのセット
-                handlerTree_.addRootNode({"helloworld", std::make_unique<HelloWorldRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
+                handlerTree_.addRootNode({"helloworld", nullptr});
+                handlerTree_.findHandlerNode("helloworld").addChildNode({"top", std::make_unique<HelloWorldRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
 
                 WSADATA wsaData;
                 int iResult;

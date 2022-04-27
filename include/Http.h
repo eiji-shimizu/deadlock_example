@@ -87,6 +87,7 @@ namespace PapierMache {
             case HttpRequestMethod::PATCH:
                 return "PATCH";
             }
+            throw std::runtime_error("invalid http request method.");
         }
 
         std::string toString() const

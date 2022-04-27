@@ -42,8 +42,25 @@ namespace PapierMache {
         return oss.str();
     }
 
+    inline std::string removeExtension(const std::string &s)
+    {
+        auto rit = s.crbegin();
+        while (*rit != '.' && rit < s.crend()) {
+            ++rit;
+        }
+        size_t index = std::distance(s.crbegin(), rit);
+        if (s.length() - index == 0) {
+            return s;
+        }
+        auto first = s.cbegin();
+        auto end = std::next(s.cbegin(), s.length() - index - 1);
+        std::ostringstream oss{""};
+        std::for_each(first, end, [&oss](char c) { oss << c; });
+        return oss.str();
+    }
+
     template <typename T>
-    char *as_bytes(T &i)
+    inline char *as_bytes(T &i)
     {
         void *addr = &i;
         return static_cast<char *>(addr);

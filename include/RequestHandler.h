@@ -20,6 +20,7 @@ namespace PapierMache {
 
     struct HandlerResult {
         HttpResponseStatusCode status;
+        std::string mediaType;
         std::vector<std::byte> responseBody;
     };
 
@@ -60,23 +61,18 @@ namespace PapierMache {
         // ただしルート(/)が指定された場合はindex.htmlを返す
         virtual HandlerResult handle(const HttpRequest request)
         {
-            std::cout << "DefaultHandler::handle" << std::endl;
+            std::cout << "----------------------DefaultHandler::handle" << std::endl;
 
             std::filesystem::path resourcePath{"sites"};
             if (request.path == "/") {
                 resourcePath /= "index.html";
             }
-            else if (request.path.length() > 0 && request.path.at(0) == '/') {
+            else {
                 resourcePath /= trim(request.path, '/');
             }
 
             std::byte b;
             std::ifstream ifs{resourcePath, std::ios_base::binary};
-            if (!ifs) {
-                // リソースがなかった場合はindex.htmlの要求とみなして開きなおす
-                resourcePath /= "index.html";
-                ifs = std::ifstream{resourcePath, std::ios_base::binary};
-            }
             std::vector<std::byte> v;
             while (ifs.read(as_bytes(b), sizeof(std::byte))) {
                 v.push_back(b);
@@ -84,6 +80,20 @@ namespace PapierMache {
 
             HandlerResult hr{};
             hr.responseBody = std::move(v);
+            // メディアタイプの判別
+            // 以下の文字列処理は非常に簡易的なもの
+            std::string extension = resourcePath.extension().string();
+            extension = trim(extension, '.');
+            std::cout << "extension: " << extension << std::endl;
+            if (extension == "ico") {
+                hr.mediaType = std::string{"image/vnd.microsoft."} + extension;
+            }
+            else if (extension == "png") {
+                hr.mediaType = std::string{"image/"} + extension;
+            }
+            else if (resourcePath.extension() == "html") {
+                hr.mediaType = std::string{"text/"} + extension;
+            }
             return hr;
         }
     };
@@ -99,8 +109,8 @@ namespace PapierMache {
 
         virtual HandlerResult handle(const HttpRequest request)
         {
-            std::cout << "RootHandler::handle" << std::endl;
-            return HandlerResult{};
+            std::cout << "----------------------RootHandler::handle" << std::endl;
+            return DefaultHandler::handle(request);
         }
     };
 
@@ -115,7 +125,7 @@ namespace PapierMache {
 
         virtual HandlerResult handle(const HttpRequest request)
         {
-            std::cout << "HelloWorldRootHandler::handle" << std::endl;
+            std::cout << "----------------------HelloWorldRootHandler::handle" << std::endl;
             return DefaultHandler::handle(request);
         }
     };
@@ -206,7 +216,24 @@ namespace PapierMache {
             for (const char c : relativePath) {
                 if (c == '/') {
                     if (oss.str() != "") {
-                        // noop
+                        if (pathName_ == oss.str()) {
+                            if (oss.str().length() == relativePath.length()) {
+                                return *this;
+                            }
+                            else {
+                                std::ostringstream childRelativePath{""};
+                                std::for_each(std::next(relativePath.cbegin(), oss.str().length() + 1), relativePath.cend(), [&childRelativePath](char c) {
+                                    childRelativePath << c;
+                                });
+                                std::cout << "childRelativePath: " << childRelativePath.str() << std::endl;
+                                for (auto &e : childNodes_) {
+                                    HandlerTreeNode &result = e.second.findNode(childRelativePath.str());
+                                    if (&result != &nullObject()) {
+                                        return result;
+                                    }
+                                }
+                            }
+                        }
                     }
                     else {
                         // ここに来た場合は絶対パスが指定されているのでエラー
@@ -217,21 +244,9 @@ namespace PapierMache {
                     oss << c;
                 }
             }
-            if (pathName_ == oss.str()) {
-                if (oss.str().length() == relativePath.length()) {
+            if (oss.str() != "") {
+                if (pathName_ == oss.str()) {
                     return *this;
-                }
-                else {
-                    std::ostringstream childRelativePath{""};
-                    std::for_each(std::next(relativePath.cbegin(), oss.str().length() + 1), relativePath.cend(), [&childRelativePath](char c) {
-                        childRelativePath << c;
-                    });
-                    for (auto &e : childNodes_) {
-                        HandlerTreeNode &result = e.second.findNode(childRelativePath.str());
-                        if (&result != &nullObject()) {
-                            return result;
-                        }
-                    }
                 }
             }
             return nullObject();
@@ -271,7 +286,7 @@ namespace PapierMache {
         HandlerTreeNode &findHandlerNode(const std::string absolutePath)
         {
             for (auto &e : rootNodes_) {
-                HandlerTreeNode &result = e.second.findNode(trim(absolutePath, '/'));
+                HandlerTreeNode &result = e.second.findNode(removeExtension(trim(absolutePath, '/')));
                 if (&result != &HandlerTreeNode::nullObject()) {
                     return result;
                 }
