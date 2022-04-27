@@ -72,6 +72,11 @@ namespace PapierMache {
 
             std::byte b;
             std::ifstream ifs{resourcePath, std::ios_base::binary};
+            if (!ifs) {
+                // リソースがなかった場合はindex.htmlの要求とみなして開きなおす
+                resourcePath /= "index.html";
+                ifs = std::ifstream{resourcePath, std::ios_base::binary};
+            }
             std::vector<std::byte> v;
             while (ifs.read(as_bytes(b), sizeof(std::byte))) {
                 v.push_back(b);
@@ -81,17 +86,12 @@ namespace PapierMache {
             hr.responseBody = std::move(v);
             return hr;
         }
-
-    private:
-        void read(const std::string path, std::string &output)
-        {
-        }
     };
 
-    class RootHandler : public RequestHandler {
+    class RootHandler : public DefaultHandler {
     public:
         RootHandler(std::initializer_list<HttpRequestMethod> supportMethods)
-            : RequestHandler{supportMethods}
+            : DefaultHandler{supportMethods}
         {
         }
 
@@ -104,10 +104,10 @@ namespace PapierMache {
         }
     };
 
-    class HelloWorldRootHandler : public RequestHandler {
+    class HelloWorldRootHandler : public DefaultHandler {
     public:
         HelloWorldRootHandler(std::initializer_list<HttpRequestMethod> supportMethods)
-            : RequestHandler{supportMethods}
+            : DefaultHandler{supportMethods}
         {
         }
 
@@ -116,7 +116,7 @@ namespace PapierMache {
         virtual HandlerResult handle(const HttpRequest request)
         {
             std::cout << "HelloWorldRootHandler::handle" << std::endl;
-            return HandlerResult{};
+            return DefaultHandler::handle(request);
         }
     };
 

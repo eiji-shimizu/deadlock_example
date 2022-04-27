@@ -5,10 +5,10 @@
 
 namespace PapierMache {
 
-    class DLEXRootHandler : public RequestHandler {
+    class DLEXRootHandler : public DefaultHandler {
     public:
         DLEXRootHandler(std::initializer_list<HttpRequestMethod> supportMethods)
-            : RequestHandler{supportMethods}
+            : DefaultHandler{supportMethods}
         {
         }
 

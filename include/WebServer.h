@@ -388,7 +388,7 @@ namespace PapierMache {
                 char buf[DEFAULT_BUFLEN];
                 char recvBuf[DEFAULT_BUFLEN];
                 int result;
-                int iSendResult;
+                int iSendResult = SOCKET_ERROR;
 
                 memset(buf, 0, sizeof(buf));
                 std::ostringstream recvData{""};
@@ -508,21 +508,40 @@ namespace PapierMache {
                             for (const std::byte b : hr.responseBody) {
                                 v.push_back(b);
                             }
-
+                            
+                            // 送信処理
                             size_t len = sizeof(buf);
-                            if (sizeof(buf) > v.size()) {
-                                len = v.size();
-                            }
-                            std::memcpy(buf, v.data(), len);
+                            size_t index = 0;
                             refSocketManager_.setStatus(clientSocket, SocketStatus::SENDING);
-                            iSendResult = send(clientSocket, buf, len, 0);
-                            if (iSendResult == SOCKET_ERROR) {
-                                std::cout << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << std::endl;
+                            for (auto it = v.cbegin(); it != v.end(); ++it) {
+                                if (index < len) {
+                                    buf[index] = static_cast<char>(*it);
+                                    ++index;
+                                }
+                                else {
+                                    iSendResult = send(clientSocket, buf, index, 0);
+                                    if (iSendResult == SOCKET_ERROR) {
+                                        refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
+                                        std::cout << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << std::endl;
+                                        break;
+                                    }
+                                    index = 0;
+                                    std::advance(it, -1);
+                                }
+                            }
+                            if (index > 0) {
+                                iSendResult = send(clientSocket, buf, index, 0);
+                                if (iSendResult == SOCKET_ERROR) {
+                                    refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
+                                    std::cout << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << std::endl;
+                                }
                             }
 
-                            // 最終送受信時刻を更新してから状態を設定する
-                            refSocketManager_.setLastTime(clientSocket, std::chrono::system_clock::now());
-                            refSocketManager_.setStatus(clientSocket, SocketStatus::COMPLETED);
+                            if (iSendResult != SOCKET_ERROR) {
+                                // 最終送受信時刻を更新してから状態を設定する
+                                refSocketManager_.setLastTime(clientSocket, std::chrono::system_clock::now());
+                                refSocketManager_.setStatus(clientSocket, SocketStatus::COMPLETED);
+                            }
                         }
                     }
                     else if (result == 0) {
