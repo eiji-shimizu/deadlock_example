@@ -1,7 +1,10 @@
 #include "Common.h"
+#include "Logger.h"
 #include "WebServer.h"
 
 #include <string>
+
+PapierMache::Logger<std::ostream> logger{std::cout};
 
 int main()
 {
@@ -11,19 +14,19 @@ int main()
     try {
 
         PapierMache::WebServer server{DEFAULT_PORT, MAX_THREADS};
-        std::cout << "server initialization start." << std::endl;
+        logger.stream().out() << "server initialization start.";
         if (server.initialize() != 0) {
-            std::cout << "server initialization failed." << std::endl;
+            logger.stream().out() << "server initialization failed.";
             return 1;
         }
         server.start();
         return 0;
     }
     catch (std::exception &e) {
-        std::cout << e.what() << std::endl;
+        logger.stream().out() << e.what();
     }
     catch (...) {
-        std::cout << "unexpected error." << std::endl;
+        logger.stream().out() << "unexpected error.";
     }
 
     return 1;

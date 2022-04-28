@@ -256,9 +256,9 @@ namespace PapierMache {
                                                      [](SocketHolder sh) {
                                                          return sh.status() == SocketStatus::TO_CLOSE;
                                                      });
-                        std::cout << "----------1.sockets_.size : " << sockets_.size() << std::endl;
+                        logger.stream().out() << "----------1.sockets_.size : " << sockets_.size();
                         sockets_.erase(result, sockets_.end());
-                        std::cout << "----------2.sockets_.size : " << sockets_.size() << std::endl;
+                        logger.stream().out() << "----------2.sockets_.size : " << sockets_.size();
 
                         // 容量オーバーであったソケットがあればクローズ
                         std::for_each(overCapacity_.begin(), overCapacity_.end(), [](SocketHolder sh) {
@@ -341,7 +341,7 @@ namespace PapierMache {
                     if (p.second) {
                         vec.push_back(p.first);
                         // finishedFlgがtrueのスレッドのみjoin
-                        std::cout << "thread id : " << p.first << " join for cleanup." << std::endl;
+                        logger.stream().out() << "thread id : " << p.first << " join for cleanup.";
                         threads_.at(p.first).join();
                     }
                 }
