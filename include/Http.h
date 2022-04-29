@@ -35,6 +35,39 @@ namespace PapierMache {
         SERVICE_UNAVAILABLE = 503
     };
 
+    std::string toStringFromStatusCode(const HttpResponseStatusCode sc)
+    {
+        switch (sc) {
+        case HttpResponseStatusCode::CONTINUE:
+            return std::to_string(static_cast<int>(sc)) + " Continue";
+        case HttpResponseStatusCode::OK:
+            return std::to_string(static_cast<int>(sc)) + " OK";
+        case HttpResponseStatusCode::CREATED:
+            return std::to_string(static_cast<int>(sc)) + " Created";
+        case HttpResponseStatusCode::MULTIPLE_CHOICE:
+            return std::to_string(static_cast<int>(sc)) + " Multiple Choice";
+        case HttpResponseStatusCode::BAD_REQUEST:
+            return std::to_string(static_cast<int>(sc)) + " Bad Request";
+        case HttpResponseStatusCode::UNAUTHORIZED:
+            return std::to_string(static_cast<int>(sc)) + " Unauthorized";
+        case HttpResponseStatusCode::FORBIDDEN:
+            return std::to_string(static_cast<int>(sc)) + " Forbidden";
+        case HttpResponseStatusCode::NOT_FOUND:
+            return std::to_string(static_cast<int>(sc)) + " Not Found";
+        case HttpResponseStatusCode::METHOD_NOT_ALLOWED:
+            return std::to_string(static_cast<int>(sc)) + " Method Not Allowed";
+        case HttpResponseStatusCode::INTERNAL_SERVER_ERROR:
+            return std::to_string(static_cast<int>(sc)) + " Internal Server Error";
+        case HttpResponseStatusCode::NOT_IMPLEMENTED:
+            return std::to_string(static_cast<int>(sc)) + " Not Implemented";
+        case HttpResponseStatusCode::BAD_GATEWAY:
+            return std::to_string(static_cast<int>(sc)) + " Bad Gateway";
+        case HttpResponseStatusCode::SERVICE_UNAVAILABLE:
+            return std::to_string(static_cast<int>(sc)) + " Service Unavailable";
+        }
+        return std::to_string(static_cast<int>(sc));
+    }
+
     struct HttpRequest {
         HttpRequestMethod method;
         std::string path;

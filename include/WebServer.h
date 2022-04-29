@@ -482,23 +482,21 @@ namespace PapierMache {
                             logger.stream().out() << "socket : " << clientSocket << " findHandlerNode AFTER";
 
                             HandlerResult hr;
-                            size_t contentLength = 0;
                             if (node.isHandlerNull()) {
-                                // TODO : 対応するurlがない場合
-                                logger.stream().out() << "socket : " << clientSocket << " invalid url.";
+                                // ハンドラーのパスと同名のリソース要求である場合がありえるのでデフォルトハンドラーを呼ぶ
+                                hr = refHandlerTree_.defaultHandlerNode().handler().handle(request);
                             }
                             else {
                                 hr = node.handler().handle(request);
-                                contentLength = hr.responseBody.size();
                             }
 
                             // logger.stream().out() << "----------------------" << count ;
                             //  仮の応答メッセージ(ヘッダ部分)
                             std::ostringstream oss{""};
                             oss << "HTTP/1.1 "
-                                << "200"
-                                << " OK\r\n"
-                                << "Content-Length:" << contentLength << "\r\n"
+                                << toStringFromStatusCode(hr.status)
+                                << "\r\n"
+                                << "Content-Length:" << hr.responseBody.size() << "\r\n"
                                 << "Content-Type: " << hr.mediaType << "\r\n"
                                 << "\r\n";
 

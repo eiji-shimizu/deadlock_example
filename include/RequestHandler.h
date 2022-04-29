@@ -71,9 +71,19 @@ namespace PapierMache {
                 if (request.path.length() <= 253) {
                     resourcePath /= trim(request.path, '/');
                 }
+                else {
+                    HandlerResult hr{};
+                    hr.status = HttpResponseStatusCode::NOT_FOUND;
+                    return hr;
+                }
             }
             std::byte b;
             std::ifstream ifs{resourcePath, std::ios_base::binary};
+            if (!ifs) {
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::NOT_FOUND;
+                return hr;
+            }
             std::vector<std::byte> v;
             while (ifs.read(as_bytes(b), sizeof(std::byte))) {
                 v.push_back(b);
@@ -85,7 +95,6 @@ namespace PapierMache {
             // 以下の文字列処理は非常に簡易的なもの
             std::string extension = resourcePath.extension().string();
             extension = trim(extension, '.');
-            logger.stream().out() << "extension: " << extension;
             if (extension == "ico") {
                 hr.mediaType = std::string{"image/vnd.microsoft."} + extension;
             }
@@ -95,6 +104,7 @@ namespace PapierMache {
             else if (resourcePath.extension() == "html") {
                 hr.mediaType = std::string{"text/"} + extension;
             }
+            hr.status = HttpResponseStatusCode::OK;
             return hr;
         }
     };
@@ -292,6 +302,11 @@ namespace PapierMache {
                     return result;
                 }
             }
+            return defaultHandlerNode_;
+        }
+
+        HandlerTreeNode &defaultHandlerNode()
+        {
             return defaultHandlerNode_;
         }
 
