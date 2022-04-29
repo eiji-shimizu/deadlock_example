@@ -16,7 +16,7 @@ namespace PapierMache {
 
         virtual HandlerResult handle(const HttpRequest request)
         {
-            std::cout << "----------------------DLEXRootHandler::handle" << std::endl;
+            logger.stream().out() << "----------------------DLEXRootHandler::handle";
             return DefaultHandler::handle(request);
         }
     };

@@ -61,16 +61,17 @@ namespace PapierMache {
         // ただしルート(/)が指定された場合はindex.htmlを返す
         virtual HandlerResult handle(const HttpRequest request)
         {
-            std::cout << "----------------------DefaultHandler::handle" << std::endl;
+            logger.stream().out() << "----------------------DefaultHandler::handle";
 
             std::filesystem::path resourcePath{"sites"};
             if (request.path == "/") {
                 resourcePath /= "index.html";
             }
             else {
-                resourcePath /= trim(request.path, '/');
+                if (request.path.length() <= 253) {
+                    resourcePath /= trim(request.path, '/');
+                }
             }
-
             std::byte b;
             std::ifstream ifs{resourcePath, std::ios_base::binary};
             std::vector<std::byte> v;
@@ -84,7 +85,7 @@ namespace PapierMache {
             // 以下の文字列処理は非常に簡易的なもの
             std::string extension = resourcePath.extension().string();
             extension = trim(extension, '.');
-            std::cout << "extension: " << extension << std::endl;
+            logger.stream().out() << "extension: " << extension;
             if (extension == "ico") {
                 hr.mediaType = std::string{"image/vnd.microsoft."} + extension;
             }
@@ -109,7 +110,7 @@ namespace PapierMache {
 
         virtual HandlerResult handle(const HttpRequest request)
         {
-            std::cout << "----------------------RootHandler::handle" << std::endl;
+            logger.stream().out() << "----------------------RootHandler::handle";
             return DefaultHandler::handle(request);
         }
     };
@@ -125,7 +126,7 @@ namespace PapierMache {
 
         virtual HandlerResult handle(const HttpRequest request)
         {
-            std::cout << "----------------------HelloWorldRootHandler::handle" << std::endl;
+            logger.stream().out() << "----------------------HelloWorldRootHandler::handle";
             return DefaultHandler::handle(request);
         }
     };
@@ -225,7 +226,7 @@ namespace PapierMache {
                                 std::for_each(std::next(relativePath.cbegin(), oss.str().length() + 1), relativePath.cend(), [&childRelativePath](char c) {
                                     childRelativePath << c;
                                 });
-                                std::cout << "childRelativePath: " << childRelativePath.str() << std::endl;
+                                logger.stream().out() << "childRelativePath: " << childRelativePath.str();
                                 for (auto &e : childNodes_) {
                                     HandlerTreeNode &result = e.second.findNode(childRelativePath.str());
                                     if (&result != &nullObject()) {
@@ -277,7 +278,7 @@ namespace PapierMache {
             if (rootNodes_.find(rootNode.pathName()) != rootNodes_.end()) {
 
                 std::ostringstream oss{""};
-                oss << "root node : " << rootNode.pathName() << " is already exists." << std::endl;
+                oss << "root node : " << rootNode.pathName() << " is already exists.";
                 throw std::runtime_error{oss.str()};
             }
             rootNodes_.insert(std::make_pair(rootNode.pathName(), std::move(rootNode)));

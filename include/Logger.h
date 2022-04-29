@@ -53,7 +53,7 @@ namespace PapierMache {
         };
 
         Logger(outT &out)
-            : refOut{out}
+            : refOut_{out}
         {
         }
         ~Logger()
@@ -69,7 +69,7 @@ namespace PapierMache {
         Logger &out(std::ostringstream &log)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            refOut << log.str() << std::endl;
+            refOut_ << log.str() << std::endl;
             return *this;
         }
 
@@ -82,7 +82,7 @@ namespace PapierMache {
 
     private:
         // 実際の出力先 参照なのでライフタイムの管理はしない
-        outT &refOut;
+        outT &refOut_;
         // バッファから実際に出力する際に使うミューテックス
         std::mutex mt_;
     };
