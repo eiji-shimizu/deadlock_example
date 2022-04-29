@@ -2,6 +2,7 @@
 #include "Logger.h"
 #include "WebServer.h"
 
+#include <iostream>
 #include <string>
 
 PapierMache::Logger<std::ostream> logger{std::cout};
@@ -19,14 +20,15 @@ int main()
             logger.stream().out() << "server initialization failed.";
             return 1;
         }
+        logger.stream().out() << "server initialization end.";
         server.start();
         return 0;
     }
     catch (std::exception &e) {
-        logger.stream().out() << e.what();
+        CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
     }
     catch (...) {
-        logger.stream().out() << "unexpected error.";
+        CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
     }
 
     return 1;

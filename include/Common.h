@@ -4,10 +4,19 @@
 #define _UNICODE
 #define UNICODE
 
-#include "Logger.h"
-
 #include <ostream>
-#include <sstream>
+
+#define CATCH_ALL_EXCEPTIONS(statements) \
+    try {                                \
+        statements                       \
+    }                                    \
+    catch (...) {                        \
+    }
+
+namespace PapierMache {
+    template <typename outT>
+    class Logger;
+}
 
 extern PapierMache::Logger<std::ostream> logger;
 

@@ -6,6 +6,7 @@
 #include "Common.h"
 #include "DLEXRequestHandler.h"
 #include "Http.h"
+#include "Logger.h"
 #include "RequestHandler.h"
 
 #include <algorithm>
@@ -115,9 +116,10 @@ namespace PapierMache {
         }
         ~SocketManager()
         {
-            if (thread_.joinable()) {
-                thread_.join();
-            }
+            CATCH_ALL_EXCEPTIONS(
+                if (thread_.joinable()) {
+                    thread_.join();
+                })
         }
 
         void startMonitor()
@@ -127,9 +129,10 @@ namespace PapierMache {
                     monitor();
                 }
                 catch (std::exception &e) {
-                    logger.stream().out() << e.what();
+                    CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
                 }
                 catch (...) {
+                    CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
                 }
             }};
         }
@@ -247,8 +250,6 @@ namespace PapierMache {
                             catch (std::exception &e) {
                                 logger.stream().out() << e.what();
                             }
-                            catch (...) {
-                            }
                         });
 
                         // リストに有効なソケットのみを残す
@@ -267,8 +268,6 @@ namespace PapierMache {
                             }
                             catch (std::exception &e) {
                                 logger.stream().out() << e.what();
-                            }
-                            catch (...) {
                             }
                         });
                         overCapacity_.clear();
@@ -371,13 +370,7 @@ namespace PapierMache {
 
         ~Receiver()
         {
-            try {
-                refThreadsMap_.setFinishedFlag(std::this_thread::get_id());
-            }
-            catch (std::exception &e) {
-            }
-            catch (...) {
-            }
+            CATCH_ALL_EXCEPTIONS(refThreadsMap_.setFinishedFlag(std::this_thread::get_id());)
         }
 
         void receive(const SOCKET clientSocket)
@@ -405,7 +398,6 @@ namespace PapierMache {
                     result = recv(clientSocket, recvBuf, sizeof(recvBuf), 0);
                     s = refSocketManager_.setStatusIfEnable(clientSocket, SocketStatus::RECEIVING);
                     logger.stream().out() << "socket : " << clientSocket << " recv AFTER";
-                    // logger.stream().out() << "-----" << count << ": " << recvBuf ;
                     if (s == SocketStatus::TO_CLOSE || s == SocketStatus::SOCKET_IS_NONE) {
                         // この場合は処理を進められないのでrecvが正常終了であった場合はここでループを抜ける
                         if (result > 0) {
@@ -417,7 +409,6 @@ namespace PapierMache {
                     if (result > 0) {
 
                         recvData << recvBuf;
-                        // logger.stream().out() << "-----" << count << ": recvData " << recvData.str() ;
                         //  仮の処理:終端が空行かであれば全て読み取ったとみなす
                         size_t lastIndex = recvData.str().length() - 1;
                         if (lastIndex > 4 &&
@@ -560,10 +551,7 @@ namespace PapierMache {
             catch (std::exception &e) {
                 refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
                 logger.stream().out() << "socket : " << clientSocket << " error : " << e.what();
-            }
-            catch (...) {
-                refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
-                logger.stream().out() << "socket : " << clientSocket << " unexpected error.";
+                throw;
             }
         }
 
@@ -607,8 +595,10 @@ namespace PapierMache {
                 WSACleanup();
             }
             catch (std::exception &e) {
+                CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
             }
             catch (...) {
+                CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
             }
         }
 
@@ -691,20 +681,12 @@ namespace PapierMache {
             catch (std::exception &e) {
                 logger.stream().out() << e.what();
             }
-            catch (...) {
-                logger.stream().out() << "unexpected error.";
-            }
 
             return 1;
         }
 
         int start()
         {
-            HandlerTreeNode n0{"a", nullptr};
-            HandlerTreeNode n1{std::move(n0)};
-            HandlerTreeNode n2{"b", nullptr};
-            // n2 = n1;
-
             try {
                 SOCKET clientSocket = INVALID_SOCKET;
                 ThreadsMap threadsMap;
@@ -737,8 +719,10 @@ namespace PapierMache {
                             receiver.receive(clientSocket);
                         }
                         catch (std::exception &e) {
+                            CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
                         }
                         catch (...) {
+                            CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
                         }
                     }};
 
@@ -751,9 +735,6 @@ namespace PapierMache {
             }
             catch (std::exception &e) {
                 logger.stream().out() << e.what();
-            }
-            catch (...) {
-                logger.stream().out() << "unexpected error.";
             }
 
             return 1;

@@ -1,6 +1,8 @@
 #ifndef DEADLOCK_EXAMPLE_LOGGER_INCLUDED
 #define DEADLOCK_EXAMPLE_LOGGER_INCLUDED
 
+#include "Common.h"
+
 #include <mutex>
 #include <sstream>
 
@@ -18,9 +20,10 @@ namespace PapierMache {
             }
             ~LogStream()
             {
-                if (buffer_.str().length() > 0) {
-                    refLogger_.out(buffer_);
-                }
+                CATCH_ALL_EXCEPTIONS(
+                    if (buffer_.str().length() > 0) {
+                        refLogger_.out(buffer_);
+                    })
             }
             std::ostringstream &out()
             {
