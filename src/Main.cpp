@@ -1,5 +1,6 @@
 #include "Common.h"
 #include "Logger.h"
+#include "Utils.h"
 #include "WebServer.h"
 
 #include <iostream>
@@ -7,14 +8,21 @@
 
 PapierMache::Logger<std::ostream> logger{std::cout};
 
+std::map<std::string, std::map<std::string, std::string>> webConfiguration;
+
 int main()
 {
-    const std::string DEFAULT_PORT = "27015";
-    const int MAX_THREADS = 10;
-
     try {
+        webConfiguration = PapierMache::readConfiguration("./webconfig/server.ini");
+        logger.stream().out() << "web configuration is";
+        logger.stream().out() << "webServer PORT: " << PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT");
+        logger.stream().out() << "webServer MAX_SOCKETS: " << PapierMache::getValue<int>(webConfiguration, "webServer", "MAX_SOCKETS");
+        logger.stream().out() << "threadsMap CLEAN_UP_POINT: " << PapierMache::getValue<int>(webConfiguration, "threadsMap", "CLEAN_UP_POINT");
+        logger.stream().out() << "socketManager MAX: " << PapierMache::getValue<int>(webConfiguration, "socketManager", "MAX");
+        logger.stream().out() << "socketManager TIMEOUT: " << PapierMache::getValue<int>(webConfiguration, "socketManager", "TIMEOUT");
 
-        PapierMache::WebServer server{DEFAULT_PORT, MAX_THREADS};
+        PapierMache::WebServer server{PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT"),
+                                      PapierMache::getValue<int>(webConfiguration, "webServer", "MAX_SOCKETS")};
         logger.stream().out() << "server initialization start.";
         if (server.initialize() != 0) {
             logger.stream().out() << "server initialization failed.";

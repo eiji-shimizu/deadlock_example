@@ -63,7 +63,7 @@ namespace PapierMache {
         {
             logger.stream().out() << "----------------------DefaultHandler::handle";
 
-            std::filesystem::path resourcePath{"sites"};
+            std::filesystem::path resourcePath{getValue<std::string>(webConfiguration, "webServer", "ROOT")};
             if (request.path == "/") {
                 resourcePath /= "index.html";
             }

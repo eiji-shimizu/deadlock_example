@@ -620,11 +620,11 @@ namespace PapierMache {
                 // RequestHandlerのセット
                 handlerTree_.addRootNode({"/", std::make_unique<RootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
                 // deadlock_exampleのRequestHandlerのセット
-                handlerTree_.addRootNode({"dlex", nullptr});
-                handlerTree_.findHandlerNode("dlex").addChildNode({"top", std::make_unique<DLEXRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
+                handlerTree_.addRootNode({getValue<std::string>(webConfiguration, "sites", "ROOT_DLEX"), nullptr});
+                handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_DLEX")).addChildNode({"top", std::make_unique<DLEXRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
                 // helloworldのRequestHandlerのセット
-                handlerTree_.addRootNode({"helloworld", nullptr});
-                handlerTree_.findHandlerNode("helloworld").addChildNode({"top", std::make_unique<HelloWorldRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
+                handlerTree_.addRootNode({getValue<std::string>(webConfiguration, "sites", "ROOT_HELLOWORLD"), nullptr});
+                handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_HELLOWORLD")).addChildNode({"top", std::make_unique<HelloWorldRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
 
                 WSADATA wsaData;
                 int iResult;
@@ -689,10 +689,11 @@ namespace PapierMache {
         {
             try {
                 SOCKET clientSocket = INVALID_SOCKET;
-                ThreadsMap threadsMap;
+                ThreadsMap threadsMap{getValue<int>(webConfiguration, "threadsMap", "CLEAN_UP_POINT")};
 
                 // SocketManagerを生成して開始する
-                SocketManager socketManager;
+                SocketManager socketManager{getValue<int>(webConfiguration, "socketManager", "MAX"),
+                                            getValue<int>(webConfiguration, "socketManager", "TIMEOUT")};
                 socketManager.startMonitor();
                 while (1) {
 
