@@ -1,4 +1,5 @@
 #include "Common.h"
+#include "Database.h"
 #include "Logger.h"
 #include "Utils.h"
 #include "WebServer.h"
@@ -8,12 +9,17 @@
 
 PapierMache::Logger<std::ostream> logger{std::cout};
 
-std::map<std::string, std::map<std::string, std::string>> webConfiguration;
+const std::map<std::string, std::map<std::string, std::string>> webConfiguration{PapierMache::readConfiguration("./webconfig/server.ini")};
+
+PapierMache::DbStuff::Database database{};
 
 int main()
 {
     try {
-        webConfiguration = PapierMache::readConfiguration("./webconfig/server.ini");
+        PapierMache::DbStuff::Connection con = database.createConnection();
+        con.close();
+        database.recieve(0);
+
         logger.stream().out() << "web configuration is";
         logger.stream().out() << "webServer PORT: " << PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT");
         logger.stream().out() << "webServer MAX_SOCKETS: " << PapierMache::getValue<int>(webConfiguration, "webServer", "MAX_SOCKETS");
@@ -33,11 +39,13 @@ int main()
         return 0;
     }
     catch (std::exception &e) {
+        logger.stream().out() << "----------------------------2.";
         CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
     }
     catch (...) {
         CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
     }
+    logger.stream().out() << "----------------------------3.";
 
     return 1;
 }
