@@ -116,7 +116,7 @@ namespace PapierMache::DbStuff {
 
         void start()
         {
-            std::unique_lock<std::mutex> lock{mt_};
+            std::lock_guard<std::mutex> lock{mt_};
             if (isStarted_) {
                 return;
             }
