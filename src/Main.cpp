@@ -5,6 +5,7 @@
 #include "WebServer.h"
 
 #include <iostream>
+#include <sstream>
 #include <string>
 
 PapierMache::Logger<std::ostream> logger{std::cout};
@@ -16,9 +17,42 @@ PapierMache::DbStuff::Database database{};
 int main()
 {
     try {
-        PapierMache::DbStuff::Connection con = database.createConnection();
+        database.start();
+        database.start();
+        database.start();
+        database.start();
+        logger.stream().out() << "database.getConnection() BEFORE";
+        PapierMache::DbStuff::Connection con = database.getConnection();
+        logger.stream().out() << "database.getConnection() AFTER";
+        std::vector<std::byte> data;
+        std::string req = "PLEASE:INSERT";
+        for (const char c : req) {
+            data.push_back(static_cast<std::byte>(c));
+        }
+        logger.stream().out() << "send data 1";
+        con.send(data);
+        logger.stream().out() << "send data 2";
+        con.receive(data);
+        std::ostringstream oss{""};
+        for (const auto b : data) {
+            oss << static_cast<char>(b);
+        }
+        logger.stream().out() << oss.str();
+        oss.str("");
+        req = "PLEASE:UPDATE";
+        data.clear();
+        for (const char c : req) {
+            data.push_back(static_cast<std::byte>(c));
+        }
+        con.send(data);
+        con.receive(data);
+        for (const auto b : data) {
+            oss << static_cast<char>(b);
+        }
+        logger.stream().out() << oss.str();
+        oss.str("");
+
         con.close();
-        database.recieve(0);
 
         logger.stream().out() << "web configuration is";
         logger.stream().out() << "webServer PORT: " << PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT");
