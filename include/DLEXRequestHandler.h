@@ -1,6 +1,8 @@
 #ifndef DEADLOCK_EXAMPLE_DLEX_REQUESTHANDLER_INCLUDED
 #define DEADLOCK_EXAMPLE_DLEX_REQUESTHANDLER_INCLUDED
 
+#include "General.h"
+
 #include "RequestHandler.h"
 
 namespace PapierMache {

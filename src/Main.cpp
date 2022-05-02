@@ -1,6 +1,9 @@
+#include "General.h"
+
 #include "Common.h"
 #include "Database.h"
 #include "Logger.h"
+#include "UUID.h"
 #include "Utils.h"
 #include "WebServer.h"
 

@@ -1,6 +1,8 @@
 #ifndef DEADLOCK_EXAMPLE_THREADS_MAP_INCLUDED
 #define DEADLOCK_EXAMPLE_THREADS_MAP_INCLUDED
 
+#include "General.h"
+
 #include "Common.h"
 #include "Logger.h"
 

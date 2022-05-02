@@ -1,6 +1,8 @@
 #ifndef DEADLOCK_EXAMPLE_LOGGER_INCLUDED
 #define DEADLOCK_EXAMPLE_LOGGER_INCLUDED
 
+#include "General.h"
+
 #include "Common.h"
 
 #include <mutex>

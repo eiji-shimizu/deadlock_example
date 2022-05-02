@@ -1,6 +1,8 @@
 #ifndef DEADLOCK_EXAMPLE_UTILS_INCLUDED
 #define DEADLOCK_EXAMPLE_UTILS_INCLUDED
 
+#include "General.h"
+
 #include <algorithm>
 #include <cctype>
 #include <filesystem>

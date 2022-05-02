@@ -1,8 +1,11 @@
 #ifndef DEADLOCK_EXAMPLE_DATABASE_INCLUDED
 #define DEADLOCK_EXAMPLE_DATABASE_INCLUDED
 
+#include "General.h"
+
 #include "Common.h"
 #include "Logger.h"
+#include "UUID.h"
 
 #include <algorithm>
 #include <condition_variable>
@@ -18,9 +21,9 @@ namespace PapierMache::DbStuff {
 
     class Database;
 
-    bool sendData(Database &db, const int connectionId, const std::vector<std::byte> &data);
-    bool receiveData(Database &db, const int connectionId, std::vector<std::byte> &out);
-    bool isClosedConnection(Database &db, const int connectionId);
+    bool sendData(Database &db, const std::string connectionId, const std::vector<std::byte> &data);
+    bool receiveData(Database &db, const std::string connectionId, std::vector<std::byte> &out);
+    bool isClosedConnection(Database &db, const std::string connectionId);
 
     class Connection {
         friend Database;
@@ -60,17 +63,17 @@ namespace PapierMache::DbStuff {
             return isClosedConnection(refDb_, id_);
         }
 
-        int id() const { return id_; }
+        const std::string id() const { return id_; }
 
     private:
-        Connection(int id, Database &refDb)
+        Connection(const std::string id, Database &refDb)
             : id_{id},
               refDb_{refDb},
               isInUse_{false}
         {
         }
 
-        int id_;
+        const std::string id_;
         Database &refDb_;
         bool isInUse_;
     };
@@ -81,26 +84,25 @@ namespace PapierMache::DbStuff {
 
         class Transaction {
         public:
-            Transaction(int id, int connectionId)
+            Transaction(const int id, const std::string connectionId)
                 : id_{id},
                   connectionId_{connectionId}
             {
             }
 
         private:
-            int id_;
-            int connectionId_;
+            const int id_;
+            const std::string connectionId_;
         };
 
         class Table {
         private:
-            int id_;
-            std::string name_;
+            const int id_;
+            const std::string name_;
         };
 
         Database()
-            : connectionId_{0},
-              transactionId_{0},
+            : transactionId_{0},
               tableId_{0},
               isRequiredConnection_{false},
               isStarted_{false}
@@ -141,10 +143,6 @@ namespace PapierMache::DbStuff {
         Database(Database &&) = delete;
         Database &operator=(Database &&) = delete;
 
-        void acceptConnectionRequest()
-        {
-        }
-
         const Connection getConnection()
         {
             std::unique_lock<std::mutex> lock{mt_};
@@ -170,15 +168,15 @@ namespace PapierMache::DbStuff {
             throw std::runtime_error("Database::getConnection() : cannot find connection.");
         }
 
-        const Transaction createTransaction(const int conId)
+        const Transaction createTransaction(const std::string connectionId)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            Transaction t{transactionId_++, conId};
+            Transaction t{transactionId_++, connectionId};
             transactionList_.push_back(t);
             return t;
         }
 
-        bool receive(const int connectionId, std::vector<std::byte> &out)
+        bool receive(const std::string connectionId, std::vector<std::byte> &out)
         {
             std::lock_guard<std::mutex> lock{mt_};
             logger.stream().out() << "connectionId: " << connectionId << " receive BEFOER";
@@ -188,14 +186,14 @@ namespace PapierMache::DbStuff {
             return true;
         }
 
-        bool send(const int connectionId, const std::vector<std::byte> &data)
+        bool send(const std::string connectionId, const std::vector<std::byte> &data)
         {
             std::lock_guard<std::mutex> lock{mt_};
             logger.stream().out() << "connectionId: " << connectionId << " send BEFOER";
             return swap(connectionId, data);
         }
 
-        bool isClosed(const int connectionId)
+        bool isClosed(const std::string connectionId)
         {
             std::lock_guard<std::mutex> lock{mt_};
             return connectionList_.end() == std::find_if(connectionList_.begin(),
@@ -204,7 +202,7 @@ namespace PapierMache::DbStuff {
         }
 
     private:
-        bool swap(const int connectionId, const std::vector<std::byte> &data)
+        bool swap(const std::string connectionId, const std::vector<std::byte> &data)
         {
             DataStream temp{data};
             logger.stream().out() << "connectionId: " << connectionId << " const swap BEFOER";
@@ -213,7 +211,7 @@ namespace PapierMache::DbStuff {
             return true;
         }
 
-        bool swap(const int connectionId, std::vector<std::byte> &data)
+        bool swap(const std::string connectionId, std::vector<std::byte> &data)
         {
             logger.stream().out() << "connectionId: " << connectionId << " swap BEFOER";
             dataStreams_.at(connectionId).swap(data);
@@ -223,7 +221,8 @@ namespace PapierMache::DbStuff {
 
         const Connection createConnection()
         {
-            Connection con{connectionId_++, *this};
+            std::string connectionId = UUID::create().str();
+            Connection con{connectionId, *this};
             connectionList_.push_back(con);
             DataStream ds;
             dataStreams_.insert(std::make_pair(con.id(), ds));
@@ -255,14 +254,13 @@ namespace PapierMache::DbStuff {
             }
         }
 
-        int connectionId_;
         int transactionId_;
         int tableId_;
         std::vector<Connection> connectionList_;
         std::vector<Transaction> transactionList_;
         std::vector<Table> tableList_;
         // int: ConnectionのId, DataStream: 送受信データ
-        std::map<int, DataStream> dataStreams_;
+        std::map<std::string, DataStream> dataStreams_;
         // コネクション作成要求がある場合にtrue
         bool isRequiredConnection_;
         // 上記bool用の条件変数
@@ -274,17 +272,17 @@ namespace PapierMache::DbStuff {
         std::mutex mt_;
     };
 
-    inline bool sendData(Database &db, const int connectionId, const std::vector<std::byte> &data)
+    inline bool sendData(Database &db, const std::string connectionId, const std::vector<std::byte> &data)
     {
         return db.send(connectionId, data);
     }
 
-    inline bool isClosedConnection(Database &db, const int connectionId)
+    inline bool isClosedConnection(Database &db, const std::string connectionId)
     {
         return db.isClosed(connectionId);
     }
 
-    inline bool receiveData(Database &db, const int connectionId, std::vector<std::byte> &out)
+    inline bool receiveData(Database &db, const std::string connectionId, std::vector<std::byte> &out)
     {
         return db.receive(connectionId, out);
     }

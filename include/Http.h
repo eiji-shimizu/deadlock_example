@@ -1,6 +1,8 @@
 #ifndef DEADLOCK_EXAMPLE_HTTP_INCLUDED
 #define DEADLOCK_EXAMPLE_HTTP_INCLUDED
 
+#include "General.h"
+
 #include <map>
 #include <sstream>
 #include <string>
@@ -12,7 +14,10 @@ namespace PapierMache {
         HEAD,
         POST,
         PUT,
+#pragma push_macro("DELETE")
+#undef DELETE
         DELETE,
+#pragma pop_macro("DELETE")
         CONNECT,
         OPTIONS,
         TRACE,
@@ -85,7 +90,10 @@ namespace PapierMache {
             else if (s == "PUT")
                 method = HttpRequestMethod::PUT;
             else if (s == "DELETE")
+#pragma push_macro("DELETE")
+#undef DELETE
                 method = HttpRequestMethod::DELETE;
+#pragma pop_macro("DELETE")
             else if (s == "CONNECT")
                 method = HttpRequestMethod::CONNECT;
             else if (s == "OPTIONS")
@@ -109,7 +117,10 @@ namespace PapierMache {
                 return "POST";
             case HttpRequestMethod::PUT:
                 return "PUT";
+#pragma push_macro("DELETE")
+#undef DELETE
             case HttpRequestMethod::DELETE:
+#pragma pop_macro("DELETE")
                 return "DELETE";
             case HttpRequestMethod::CONNECT:
                 return "CONNECT";

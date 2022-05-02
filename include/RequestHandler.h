@@ -1,6 +1,8 @@
 #ifndef DEADLOCK_EXAMPLE_REQUESTHANDLER_INCLUDED
 #define DEADLOCK_EXAMPLE_REQUESTHANDLER_INCLUDED
 
+#include "General.h"
+
 #include "Http.h"
 #include "Utils.h"
 

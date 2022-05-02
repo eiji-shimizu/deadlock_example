@@ -1,6 +1,8 @@
 #ifndef DEADLOCK_EXAMPLE_WEBSERVER_INCLUDED
 #define DEADLOCK_EXAMPLE_WEBSERVER_INCLUDED
 
+#include "General.h"
+
 #pragma comment(lib, "ws2_32.lib")
 
 #include "Common.h"
@@ -9,6 +11,9 @@
 #include "Logger.h"
 #include "RequestHandler.h"
 #include "ThreadsMap.h"
+
+#include <winsock2.h>
+#include <ws2tcpip.h>
 
 #include <algorithm>
 #include <chrono>
@@ -22,9 +27,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-#include <winsock2.h>
-#include <ws2tcpip.h>
 
 namespace PapierMache {
 
