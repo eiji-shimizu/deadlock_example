@@ -5,9 +5,11 @@
 
 #include "Common.h"
 #include "Logger.h"
+#include "ThreadsMap.h"
 #include "UUID.h"
 
 #include <algorithm>
+#include <array>
 #include <condition_variable>
 #include <exception>
 #include <map>
@@ -15,15 +17,13 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <tuple>
+#include <type_traits>
 #include <vector>
 
 namespace PapierMache::DbStuff {
 
     class Database;
-
-    bool sendData(Database &db, const std::string connectionId, const std::vector<std::byte> &data);
-    bool receiveData(Database &db, const std::string connectionId, std::vector<std::byte> &out);
-    bool isClosedConnection(Database &db, const std::string connectionId);
 
     class Connection {
         friend Database;
@@ -47,21 +47,15 @@ namespace PapierMache::DbStuff {
         }
 
         // 引数のデータを送信する
-        bool send(const std::vector<std::byte> &data)
-        {
-            return sendData(refDb_, id_, data);
-        }
-
+        bool send(const std::vector<std::byte> &data);
         // 引数にデータを受信する
-        bool receive(std::vector<std::byte> &data)
-        {
-            return receiveData(refDb_, id_, data);
-        }
-
-        bool isClosed()
-        {
-            return isClosedConnection(refDb_, id_);
-        }
+        bool receive(std::vector<std::byte> &out);
+        // 送信したデータの処理を依頼する
+        void request();
+        // 処理結果を待つ
+        void wait();
+        // このコネクションがクローズしていればtrue
+        bool isClosed();
 
         const std::string id() const { return id_; }
 
@@ -81,6 +75,13 @@ namespace PapierMache::DbStuff {
     class Database {
     public:
         using DataStream = std::vector<std::byte>;
+
+        // 0: ConnectionのId
+        // 1: ミューテックス
+        // 2: 条件変数
+        // 3: クライアントから処理要求がある場合にtrue
+        // このセッションが終了した場合はConnectionのIdは空文字列になる
+        using SessionCondition = std::tuple<std::string, std::mutex, std::condition_variable, bool>;
 
         class Transaction {
         public:
@@ -176,21 +177,55 @@ namespace PapierMache::DbStuff {
             return t;
         }
 
-        bool receive(const std::string connectionId, std::vector<std::byte> &out)
+        // コネクションとのインターフェース関数 ここから
+        bool getData(const std::string connectionId, std::vector<std::byte> &out)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            logger.stream().out() << "connectionId: " << connectionId << " receive BEFOER";
+            logger.stream().out() << "connectionId: " << connectionId << " getData";
             DataStream ds;
             swap(connectionId, ds);
             ds.swap(out);
             return true;
         }
 
-        bool send(const std::string connectionId, const std::vector<std::byte> &data)
+        bool setData(const std::string connectionId, const std::vector<std::byte> &data)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            logger.stream().out() << "connectionId: " << connectionId << " send BEFOER";
+            logger.stream().out() << "connectionId: " << connectionId << " setData";
             return swap(connectionId, data);
+        }
+
+        void toNotify(const std::string connectionId, const bool b = false)
+        {
+            // std::lock_guard<std::mutex> lock{mt_};
+            notifyImpl(connectionId, b);
+        }
+
+        void wait(const std::string connectionId)
+        {
+            std::array<Database::SessionCondition, 50>::iterator result;
+            { // Scoped Lock start
+                std::lock_guard<std::mutex> lock{mt_};
+                result = std::find_if(conditions_.begin(),
+                                      conditions_.end(),
+                                      [connectionId](const Database::SessionCondition &sc) {
+                                          return std::get<0>(sc) == connectionId;
+                                      });
+                if (result == conditions_.end()) {
+                    throw std::runtime_error{"wait() : " + std::string{"should not reach here."}};
+                }
+            } // Scoped Lock end
+            logger.stream().out() << "------------------------------wait 1.";
+            std::unique_lock<std::mutex> lock{std::get<1>(*result)};
+            logger.stream().out() << "------------------------------wait 2.";
+            bool &refB = std::get<3>(*result);
+            if (refB) {
+                logger.stream().out() << "------------------------------wait 3.";
+                std::get<2>(*result).wait(lock, [&refB] {
+                    return refB == false;
+                });
+            }
+            logger.stream().out() << "------------------------------wait 4.";
         }
 
         bool isClosed(const std::string connectionId)
@@ -200,6 +235,7 @@ namespace PapierMache::DbStuff {
                                                          connectionList_.end(),
                                                          [connectionId](const Connection c) { return c.id() == connectionId; });
         }
+        // コネクションとのインターフェース関数 ここまで
 
     private:
         bool swap(const std::string connectionId, const std::vector<std::byte> &data)
@@ -229,24 +265,120 @@ namespace PapierMache::DbStuff {
             return con;
         }
 
+        // 処理が完了したことをコネクションに通知する
+        void notifyImpl(const std::string connectionId, const bool b)
+        {
+            logger.stream().out() << "------------------------------notifyImpl 1.";
+            for (int i = 0; i < conditions_.size(); ++i) {
+                const SessionCondition &sc = conditions_.at(i);
+                if (std::get<0>(sc) == connectionId) {
+                    // ここからは書き込み操作可
+                    logger.stream().out() << "------------------------------notifyImpl 2. " << b;
+                    std::get<3>(conditions_.at(i)) = b;
+                    std::get<2>(conditions_.at(i)).notify_one();
+                    logger.stream().out() << "------------------------------notifyImpl 3.";
+                    break;
+                }
+            }
+        }
+
+        std::thread startChildThread(const std::string connectionId)
+        {
+            // クライアントとやり取りするスレッドを作成
+            bool reuse = false;
+            for (auto &e : conditions_) {
+                if (std::get<0>(e) == "") {
+                    std::get<0>(e) = connectionId;
+                    reuse = true;
+                    break;
+                }
+            }
+            if (!reuse) {
+                throw std::runtime_error{"Database::startChildThread() : " + std::string{"number of sessions is upper limits."}};
+            }
+
+            auto result = std::find_if(conditions_.begin(),
+                                       conditions_.end(),
+                                       [connectionId](const SessionCondition &sc) {
+                                           return std::get<0>(sc) == connectionId;
+                                       });
+            if (result == conditions_.end()) {
+                throw std::runtime_error{"Database::startChildThread() : " + std::string{"should not reach here."}};
+            }
+
+            logger.stream().out() << "------------------------------11.";
+            std::thread t{[&condition = *result, this] {
+                try {
+                    logger.stream().out() << "------------------------------12.";
+                    const std::string &refId = std::get<0>(condition);
+                    std::mutex &refMt = std::get<1>(condition);
+                    std::condition_variable &refCv = std::get<2>(condition);
+                    bool &refB = std::get<3>(condition);
+
+                    while (true) {
+                        { // Scoped Lock start
+                            std::unique_lock<std::mutex> lock{refMt};
+                            logger.stream().out() << "------------------------------13.";
+                            if (!refB) {
+                                logger.stream().out() << "------------------------------14.";
+                                refCv.wait(lock, [&refB] {
+                                    return refB;
+                                });
+                            }
+                        } // Scoped Lock end
+                        logger.stream().out() << "connection id: " << refId << " is processing.";
+
+                        // TODO: 要求を処理
+                        std::vector<std::byte> data;
+                        getData(refId, data);
+                        std::string closeRequest = " TEST MESSAGE.";
+                        for (const char c : closeRequest) {
+                            data.push_back(static_cast<std::byte>(c));
+                        }
+                        setData(refId, std::cref(data));
+                        toNotify(refId);
+                    }
+                }
+                catch (std::exception &e) {
+                    CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
+                }
+                catch (...) {
+                    CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
+                }
+            }};
+            return std::move(t);
+        }
+
         void startService()
         {
             try {
+                for (SessionCondition &sc : conditions_) {
+                    std::get<0>(sc) = "";
+                    std::get<3>(sc) = false;
+                }
+                ThreadsMap threads;
                 while (true) {
-                    logger.stream().out() << "--------------------1.";
                     std::this_thread::sleep_for(std::chrono::seconds(1));
-                    logger.stream().out() << "--------------------2.";
+                    std::string connectionId;
                     { // Scoped Lock start
                         std::lock_guard<std::mutex> lock{mt_};
-                        logger.stream().out() << "--------------------3.";
-                        if (isRequiredConnection_) {
-                            createConnection();
+                        if (!isRequiredConnection_) {
+                            continue;
                         }
+                        Connection con = createConnection();
+                        connectionId = con.id();
+
                         isRequiredConnection_ = false;
                     } // Scoped Lock end
-                    logger.stream().out() << "--------------------4.";
                     cond_.notify_all();
-                    logger.stream().out() << "--------------------5.";
+
+                    std::thread t;
+                    { // Scoped Lock start
+                        std::lock_guard<std::mutex> lock{mt_};
+                        t = startChildThread(connectionId);
+                    } // Scoped Lock end
+                    threads.addThread(std::move(t));
+                    threads.cleanUp();
                 }
             }
             catch (std::exception &e) {
@@ -259,12 +391,17 @@ namespace PapierMache::DbStuff {
         std::vector<Connection> connectionList_;
         std::vector<Transaction> transactionList_;
         std::vector<Table> tableList_;
-        // int: ConnectionのId, DataStream: 送受信データ
+        // key: ConnectionのId, value: 送受信データ
         std::map<std::string, DataStream> dataStreams_;
+
         // コネクション作成要求がある場合にtrue
         bool isRequiredConnection_;
         // 上記bool用の条件変数
         std::condition_variable cond_;
+
+        // クライアントと子スレッドのセッションの状態
+        std::array<SessionCondition, 50> conditions_;
+
         // データベースサービスのメインスレッド
         std::thread thread_;
         // サービスが開始していればtrue
@@ -272,19 +409,32 @@ namespace PapierMache::DbStuff {
         std::mutex mt_;
     };
 
-    inline bool sendData(Database &db, const std::string connectionId, const std::vector<std::byte> &data)
+    // Connection
+    inline bool Connection::send(const std::vector<std::byte> &data)
     {
-        return db.send(connectionId, data);
+        // クライアントからの情報送信はDB内部の送受信用バッファに情報を入れる
+        return refDb_.setData(id_, data);
     }
 
-    inline bool isClosedConnection(Database &db, const std::string connectionId)
+    inline bool Connection::receive(std::vector<std::byte> &out)
     {
-        return db.isClosed(connectionId);
+        // クライアントはDB内部の送受信用バッファから情報を取り出すことで受信する
+        return refDb_.getData(id_, out);
     }
 
-    inline bool receiveData(Database &db, const std::string connectionId, std::vector<std::byte> &out)
+    inline void Connection::request()
     {
-        return db.receive(connectionId, out);
+        refDb_.toNotify(id_, true);
+    }
+
+    inline void Connection::wait()
+    {
+        refDb_.wait(id_);
+    }
+
+    inline bool Connection::isClosed()
+    {
+        return refDb_.isClosed(id_);
     }
 
     class DbDriver {

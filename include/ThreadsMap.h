@@ -8,6 +8,7 @@
 
 #include <map>
 #include <mutex>
+#include <vector>
 
 namespace PapierMache {
 

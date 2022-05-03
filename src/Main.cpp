@@ -32,28 +32,48 @@ int main()
         for (const char c : req) {
             data.push_back(static_cast<std::byte>(c));
         }
-        logger.stream().out() << "send data 1";
+        logger.stream().out() << "--------------1.";
         con.send(data);
-        logger.stream().out() << "send data 2";
+        logger.stream().out() << "--------------2.";
+        con.request();
+        logger.stream().out() << "--------------3.";
+        con.wait();
+        logger.stream().out() << "--------------4.";
         con.receive(data);
+        logger.stream().out() << "--------------5.";
         std::ostringstream oss{""};
         for (const auto b : data) {
             oss << static_cast<char>(b);
         }
         logger.stream().out() << oss.str();
         oss.str("");
-        req = "PLEASE:UPDATE";
-        data.clear();
-        for (const char c : req) {
-            data.push_back(static_cast<std::byte>(c));
-        }
-        con.send(data);
-        con.receive(data);
-        for (const auto b : data) {
-            oss << static_cast<char>(b);
-        }
-        logger.stream().out() << oss.str();
-        oss.str("");
+
+        // std::string req = "PLEASE:INSERT";
+        // for (const char c : req) {
+        //     data.push_back(static_cast<std::byte>(c));
+        // }
+        // logger.stream().out() << "send data 1";
+        // con.send(data);
+        // logger.stream().out() << "send data 2";
+        // con.receive(data);
+        // std::ostringstream oss{""};
+        // for (const auto b : data) {
+        //     oss << static_cast<char>(b);
+        // }
+        // logger.stream().out() << oss.str();
+        // oss.str("");
+        // req = "PLEASE:UPDATE";
+        // data.clear();
+        // for (const char c : req) {
+        //     data.push_back(static_cast<std::byte>(c));
+        // }
+        // con.send(data);
+        // con.receive(data);
+        // for (const auto b : data) {
+        //     oss << static_cast<char>(b);
+        // }
+        // logger.stream().out() << oss.str();
+        // oss.str("");
 
         con.close();
 
