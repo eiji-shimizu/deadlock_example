@@ -14,6 +14,7 @@
 #include <exception>
 #include <map>
 #include <mutex>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -197,31 +198,30 @@ namespace PapierMache::DbStuff {
 
         void toNotify(const std::string connectionId, const bool b = false)
         {
-            // std::lock_guard<std::mutex> lock{mt_};
             notifyImpl(connectionId, b);
         }
 
         void wait(const std::string connectionId)
         {
-            std::array<Database::SessionCondition, 50>::iterator result;
-            { // Scoped Lock start
-                std::lock_guard<std::mutex> lock{mt_};
-                result = std::find_if(conditions_.begin(),
-                                      conditions_.end(),
-                                      [connectionId](const Database::SessionCondition &sc) {
-                                          return std::get<0>(sc) == connectionId;
-                                      });
-                if (result == conditions_.end()) {
-                    throw std::runtime_error{"wait() : " + std::string{"should not reach here."}};
+            int i = 0;
+            { // 読み込みロック
+                std::shared_lock<std::shared_mutex> lock(sharedMt_);
+                for (i = 0; i < conditions_.size(); ++i) {
+                    const SessionCondition &sc = conditions_.at(i);
+                    if (std::get<0>(sc) == connectionId) {
+                        logger.stream().out() << "------------------------------wait 1.";
+                        break;
+                    }
                 }
-            } // Scoped Lock end
-            logger.stream().out() << "------------------------------wait 1.";
-            std::unique_lock<std::mutex> lock{std::get<1>(*result)};
+            }
+            if (i == conditions_.size()) {
+                return;
+            }
             logger.stream().out() << "------------------------------wait 2.";
-            bool &refB = std::get<3>(*result);
-            if (refB) {
+            std::unique_lock<std::mutex> lock{std::get<1>(conditions_.at(i))};
+            if (std::get<3>(conditions_.at(i))) {
                 logger.stream().out() << "------------------------------wait 3.";
-                std::get<2>(*result).wait(lock, [&refB] {
+                std::get<2>(conditions_.at(i)).wait(lock, [&refB = std::get<3>(conditions_.at(i))] {
                     return refB == false;
                 });
             }
@@ -269,12 +269,17 @@ namespace PapierMache::DbStuff {
         void notifyImpl(const std::string connectionId, const bool b)
         {
             logger.stream().out() << "------------------------------notifyImpl 1.";
+            // 読み込みロック
+            std::shared_lock<std::shared_mutex> shLock(sharedMt_);
             for (int i = 0; i < conditions_.size(); ++i) {
                 const SessionCondition &sc = conditions_.at(i);
                 if (std::get<0>(sc) == connectionId) {
-                    // ここからは書き込み操作可
+                    // ここからは書き込み操作
                     logger.stream().out() << "------------------------------notifyImpl 2. " << b;
-                    std::get<3>(conditions_.at(i)) = b;
+                    { // Scoped Lock start
+                        std::lock_guard<std::mutex> lock{std::get<1>(conditions_.at(i))};
+                        std::get<3>(conditions_.at(i)) = b;
+                    } // Scoped Lock end
                     std::get<2>(conditions_.at(i)).notify_one();
                     logger.stream().out() << "------------------------------notifyImpl 3.";
                     break;
@@ -286,9 +291,13 @@ namespace PapierMache::DbStuff {
         {
             // クライアントとやり取りするスレッドを作成
             bool reuse = false;
-            for (auto &e : conditions_) {
-                if (std::get<0>(e) == "") {
-                    std::get<0>(e) = connectionId;
+            for (int i = 0; i < conditions_.size(); ++i) {
+                const SessionCondition &sc = conditions_.at(i);
+                if (std::get<0>(sc) == "") {
+                    { // 書き込みロック
+                        std::lock_guard<std::shared_mutex> lock(sharedMt_);
+                        std::get<0>(conditions_.at(i)) = connectionId;
+                    }
                     reuse = true;
                     break;
                 }
@@ -297,46 +306,49 @@ namespace PapierMache::DbStuff {
                 throw std::runtime_error{"Database::startChildThread() : " + std::string{"number of sessions is upper limits."}};
             }
 
-            auto result = std::find_if(conditions_.begin(),
-                                       conditions_.end(),
-                                       [connectionId](const SessionCondition &sc) {
-                                           return std::get<0>(sc) == connectionId;
-                                       });
-            if (result == conditions_.end()) {
+            int i = 0;
+            for (i = 0; i < conditions_.size(); ++i) {
+                const SessionCondition &sc = conditions_.at(i);
+                if (std::get<0>(sc) == connectionId) {
+                    logger.stream().out() << "------------------------------wait 1.";
+                    break;
+                }
+            }
+            if (i == conditions_.size()) {
                 throw std::runtime_error{"Database::startChildThread() : " + std::string{"should not reach here."}};
             }
 
             logger.stream().out() << "------------------------------11.";
-            std::thread t{[&condition = *result, this] {
+            std::thread t{[&condition = conditions_.at(i), this] {
                 try {
                     logger.stream().out() << "------------------------------12.";
-                    const std::string &refId = std::get<0>(condition);
-                    std::mutex &refMt = std::get<1>(condition);
-                    std::condition_variable &refCv = std::get<2>(condition);
-                    bool &refB = std::get<3>(condition);
-
+                    std::string id;
+                    { // 読み込みロック
+                        std::shared_lock<std::shared_mutex> lock(sharedMt_);
+                        id = std::get<0>(condition);
+                    }
                     while (true) {
                         { // Scoped Lock start
-                            std::unique_lock<std::mutex> lock{refMt};
+                            std::unique_lock<std::mutex> lock{std::get<1>(condition)};
                             logger.stream().out() << "------------------------------13.";
-                            if (!refB) {
+                            if (!std::get<3>(condition)) {
                                 logger.stream().out() << "------------------------------14.";
-                                refCv.wait(lock, [&refB] {
+                                std::get<2>(condition).wait(lock, [&refB = std::get<3>(condition)] {
                                     return refB;
                                 });
                             }
                         } // Scoped Lock end
-                        logger.stream().out() << "connection id: " << refId << " is processing.";
+                        logger.stream().out() << "connection id: " << id << " is processing.";
 
                         // TODO: 要求を処理
                         std::vector<std::byte> data;
-                        getData(refId, data);
+                        getData(id, data);
                         std::string closeRequest = " TEST MESSAGE.";
                         for (const char c : closeRequest) {
                             data.push_back(static_cast<std::byte>(c));
                         }
-                        setData(refId, std::cref(data));
-                        toNotify(refId);
+                        setData(id, std::cref(data));
+                        toNotify(id);
                     }
                 }
                 catch (std::exception &e) {
@@ -407,6 +419,9 @@ namespace PapierMache::DbStuff {
         // サービスが開始していればtrue
         bool isStarted_;
         std::mutex mt_;
+
+        // SessionConditionのConnectionのIdを設定する際に用いるミューテックス
+        std::shared_mutex sharedMt_;
     };
 
     // Connection
