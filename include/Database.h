@@ -32,7 +32,8 @@ namespace PapierMache::DbStuff {
     public:
         ~Connection()
         {
-            // noop
+            // logger.stream().out() << " ~Connection()";
+            //   noop
         }
 
         void close()
@@ -47,6 +48,8 @@ namespace PapierMache::DbStuff {
             }
         }
 
+        // トランザクションを開始する
+        bool beginTransaction();
         // 引数のデータを送信する
         bool send(const std::vector<std::byte> &data);
         // 引数にデータを受信する
@@ -84,25 +87,6 @@ namespace PapierMache::DbStuff {
         // このセッションが終了した場合はConnectionのIdは空文字列になる
         using SessionCondition = std::tuple<std::string, std::mutex, std::condition_variable, bool>;
 
-        class Transaction {
-        public:
-            Transaction(const int id, const std::string connectionId)
-                : id_{id},
-                  connectionId_{connectionId}
-            {
-            }
-
-        private:
-            const int id_;
-            const std::string connectionId_;
-        };
-
-        class Table {
-        private:
-            const int id_;
-            const std::string name_;
-        };
-
         Database()
             : transactionId_{0},
               tableId_{0},
@@ -112,10 +96,22 @@ namespace PapierMache::DbStuff {
         }
         ~Database()
         {
+            // debug用
+            logger.stream().out() << " ~Database()";
+            logger.stream().out() << connectionList_.size();
+            logger.stream().out() << transactionList_.size();
+            logger.stream().out() << tableList_.size();
             CATCH_ALL_EXCEPTIONS(
                 if (thread_.joinable()) {
-                    thread_.join();
+                    thread_.detach();
                 })
+            // for (Transaction &t : transactionList_) {
+            //     t.~Transaction();
+            // }
+            // CATCH_ALL_EXCEPTIONS(
+            //     if (thread_.joinable()) {
+            //         thread_.join();
+            //     })
         }
 
         void start()
@@ -170,15 +166,15 @@ namespace PapierMache::DbStuff {
             throw std::runtime_error("Database::getConnection() : cannot find connection.");
         }
 
-        const Transaction createTransaction(const std::string connectionId)
+        // コネクションとのインターフェース関数 ここから
+        bool setTransaction(const std::string connectionId)
         {
             std::lock_guard<std::mutex> lock{mt_};
             Transaction t{transactionId_++, connectionId};
             transactionList_.push_back(t);
-            return t;
+            return true;
         }
 
-        // コネクションとのインターフェース関数 ここから
         bool getData(const std::string connectionId, std::vector<std::byte> &out)
         {
             std::lock_guard<std::mutex> lock{mt_};
@@ -238,6 +234,126 @@ namespace PapierMache::DbStuff {
         // コネクションとのインターフェース関数 ここまで
 
     private:
+        class Transaction {
+        public:
+            Transaction(const short id, const std::string connectionId)
+                : id_{id},
+                  connectionId_{connectionId}
+            {
+            }
+
+            ~Transaction()
+            {
+                logger.stream().out() << " ~Transaction()";
+                for (const auto &e : toCommit_) {
+                    logger.stream().out() << e.first;
+                    std::ostringstream oss{""};
+                    for (const auto &v : e.second) {
+                        for (const std::byte b : v) {
+                            oss << static_cast<char>(b);
+                        }
+                    }
+                    logger.stream().out() << oss.str();
+                }
+            }
+
+            void commit()
+            {
+                // TODO:
+            }
+
+            void rollback()
+            {
+                toCommit_.clear();
+            }
+
+            void addToCommit(const std::string tableName, const std::vector<std::byte> &bytes)
+            {
+                if (toCommit_.find(tableName) == toCommit_.end()) {
+                    std::vector<std::vector<std::byte>> vec{};
+                    toCommit_.insert(std::make_pair(tableName, vec));
+                }
+                toCommit_.at(tableName).push_back(bytes);
+            }
+
+            const short id() const
+            {
+                return id_;
+            }
+
+            const std::string connectionId() const
+            {
+                return connectionId_;
+            }
+
+        private:
+            const short id_;
+            const std::string connectionId_;
+            // key: テーブル名, value: コミット予定の値のベクタ
+            std::map<std::string, std::vector<std::vector<std::byte>>> toCommit_;
+        };
+
+        class Table {
+        public:
+            Table(const short id,
+                  const std::string name)
+                : id_{id},
+                  name_{name}
+            {
+            }
+
+            ~Table()
+            {
+                logger.stream().out() << " ~Table()";
+                // noop
+            }
+
+            bool setTarget(const short rowNo, const short transactionId)
+            {
+                // std::lock_guard<std::mutex> lock{mt_};
+                if (isTarget_.find(rowNo) != isTarget_.end()) {
+                    if (isTarget_.at(rowNo) >= 0) {
+                        return false;
+                    }
+                    isTarget_.at(rowNo) = transactionId;
+                    return true;
+                }
+                isTarget_.insert(std::make_pair(rowNo, transactionId));
+                return true;
+            }
+
+            bool clearTarget(const short rowNo, const short transactionId)
+            {
+                // std::lock_guard<std::mutex> lock{mt_};
+                if (isTarget_.find(rowNo) != isTarget_.end()) {
+                    if (isTarget_.at(rowNo) != transactionId) {
+                        return false;
+                    }
+                    isTarget_.at(rowNo) = -1;
+                    return true;
+                }
+                return false;
+            }
+
+            bool isTarget(const short rowNo)
+            {
+                // std::lock_guard<std::mutex> lock{mt_};
+                return isTarget_.find(rowNo) != isTarget_.end();
+            }
+
+            const std::string name() const
+            {
+                return name_;
+            };
+
+        private:
+            const short id_;
+            const std::string name_;
+            // key:行番号, value: トランザクションによって変更対象になっていればそのトランザクションのid,それ以外は負の値
+            std::map<short, short> isTarget_;
+            // std::mutex mt_;
+        };
+
         bool swap(const std::string connectionId, const std::vector<std::byte> &data)
         {
             DataStream temp{data};
@@ -283,6 +399,23 @@ namespace PapierMache::DbStuff {
                     std::get<2>(conditions_.at(i)).notify_one();
                     logger.stream().out() << "------------------------------notifyImpl 3.";
                     break;
+                }
+            }
+        }
+
+        void addTransactionTarget(const std::string connectionId, const std::string tableName, const std::vector<std::byte> &bytes)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            short transactionId = -1;
+            for (Transaction &t : transactionList_) {
+                if (t.connectionId() == connectionId) {
+                    transactionId = t.id();
+                    t.addToCommit(tableName, bytes);
+                }
+            }
+            for (Table &table : tableList_) {
+                if (table.name() == tableName) {
+                    table.setTarget(1, transactionId);
                 }
             }
         }
@@ -343,6 +476,9 @@ namespace PapierMache::DbStuff {
                         // TODO: 要求を処理
                         std::vector<std::byte> data;
                         getData(id, data);
+
+                        addTransactionTarget(id, "tableName", data);
+
                         std::string closeRequest = " TEST MESSAGE.";
                         for (const char c : closeRequest) {
                             data.push_back(static_cast<std::byte>(c));
@@ -398,8 +534,8 @@ namespace PapierMache::DbStuff {
             }
         }
 
-        int transactionId_;
-        int tableId_;
+        short transactionId_;
+        short tableId_;
         std::vector<Connection> connectionList_;
         std::vector<Transaction> transactionList_;
         std::vector<Table> tableList_;
@@ -425,6 +561,11 @@ namespace PapierMache::DbStuff {
     };
 
     // Connection
+    inline bool Connection::beginTransaction()
+    {
+        return refDb_.setTransaction(id_);
+    }
+
     inline bool Connection::send(const std::vector<std::byte> &data)
     {
         // クライアントからの情報送信はDB内部の送受信用バッファに情報を入れる

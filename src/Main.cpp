@@ -20,62 +20,51 @@ PapierMache::DbStuff::Database database{};
 int main()
 {
     try {
-        database.start();
-        database.start();
-        database.start();
-        database.start();
-        logger.stream().out() << "database.getConnection() BEFORE";
-        PapierMache::DbStuff::Connection con = database.getConnection();
-        logger.stream().out() << "database.getConnection() AFTER";
-        std::vector<std::byte> data;
-        std::string req = "PLEASE:INSERT";
-        for (const char c : req) {
-            data.push_back(static_cast<std::byte>(c));
-        }
-        logger.stream().out() << "--------------1.";
-        con.send(data);
-        logger.stream().out() << "--------------2.";
-        con.request();
-        logger.stream().out() << "--------------3.";
-        con.wait();
-        logger.stream().out() << "--------------4.";
-        con.receive(data);
-        logger.stream().out() << "--------------5.";
-        std::ostringstream oss{""};
-        for (const auto b : data) {
-            oss << static_cast<char>(b);
-        }
-        logger.stream().out() << oss.str();
-        oss.str("");
+        {
+            PapierMache::DbStuff::Database db{};
+            db.start();
+            db.start();
+            db.start();
+            db.start();
+            PapierMache::DbStuff::Connection con = db.getConnection();
+            std::vector<std::byte> data;
+            std::string req = "PLEASE:INSERT";
+            for (const char c : req) {
+                data.push_back(static_cast<std::byte>(c));
+            }
+            con.beginTransaction();
+            con.send(data);
+            con.request();
+            con.wait();
+            con.receive(data);
+            // std::ostringstream oss{""};
+            // for (const auto b : data) {
+            //     oss << static_cast<char>(b);
+            // }
+            // logger.stream().out() << oss.str();
+            // oss.str("");
+            con.close();
 
-        // std::string req = "PLEASE:INSERT";
-        // for (const char c : req) {
-        //     data.push_back(static_cast<std::byte>(c));
-        // }
-        // logger.stream().out() << "send data 1";
-        // con.send(data);
-        // logger.stream().out() << "send data 2";
-        // con.receive(data);
-        // std::ostringstream oss{""};
-        // for (const auto b : data) {
-        //     oss << static_cast<char>(b);
-        // }
-        // logger.stream().out() << oss.str();
-        // oss.str("");
-        // req = "PLEASE:UPDATE";
-        // data.clear();
-        // for (const char c : req) {
-        //     data.push_back(static_cast<std::byte>(c));
-        // }
-        // con.send(data);
-        // con.receive(data);
-        // for (const auto b : data) {
-        //     oss << static_cast<char>(b);
-        // }
-        // logger.stream().out() << oss.str();
-        // oss.str("");
+            PapierMache::DbStuff::Connection con2 = db.getConnection();
+            data.clear();
+            req = "PLEASE:UPDATE";
+            for (const char c : req) {
+                data.push_back(static_cast<std::byte>(c));
+            }
+            con2.beginTransaction();
+            con2.send(data);
+            con2.request();
+            con2.wait();
+            con2.receive(data);
+            // for (const auto b : data) {
+            //     oss << static_cast<char>(b);
+            // }
+            // logger.stream().out() << oss.str();
+            // oss.str("");
+            con2.close();
+        }
 
-        con.close();
+        // throw std::runtime_error{"-----------------------AAAAAAAAAAAAAAA"};
 
         logger.stream().out() << "web configuration is";
         logger.stream().out() << "webServer PORT: " << PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT");

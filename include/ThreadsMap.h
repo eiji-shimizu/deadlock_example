@@ -24,7 +24,13 @@ namespace PapierMache {
         }
         ~ThreadsMap()
         {
-            // noop
+            CATCH_ALL_EXCEPTIONS(
+                for (auto &e
+                     : threads_) {
+                    if (e.second.joinable()) {
+                        e.second.detach();
+                    }
+                })
         }
 
         // コピー禁止
