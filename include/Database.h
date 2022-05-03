@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <exception>
 #include <map>
@@ -19,7 +20,6 @@
 #include <string>
 #include <thread>
 #include <tuple>
-#include <type_traits>
 #include <vector>
 
 namespace PapierMache::DbStuff {
@@ -91,27 +91,41 @@ namespace PapierMache::DbStuff {
             : transactionId_{0},
               tableId_{0},
               isRequiredConnection_{false},
-              isStarted_{false}
+              isStarted_{false},
+              toBeStoped_{false}
         {
         }
         ~Database()
         {
-            // debug用
-            logger.stream().out() << " ~Database()";
-            logger.stream().out() << connectionList_.size();
-            logger.stream().out() << transactionList_.size();
-            logger.stream().out() << tableList_.size();
-            CATCH_ALL_EXCEPTIONS(
+            CATCH_ALL_EXCEPTIONS({
+                logger.stream().out() << " ~Database()";
+                threads_.setFinishedFlagAll();
+                { // Scoped Lock
+                    std::lock_guard<std::mutex> lock{mt_};
+                    for (int i = 0; i < conditions_.size(); ++i) {
+                        {
+                            std::shared_lock<std::shared_mutex> sh(sharedMt_);
+                            if (std::get<0>(conditions_[i]) != "") {
+                                logger.stream().out() << "notify_all() BEFORE";
+                                std::lock_guard<std::mutex> lock2{std::get<1>(conditions_[i])};
+                                if (!std::get<3>(conditions_[i])) {
+                                    std::get<3>(conditions_[i]) = true;
+                                }
+                                std::get<2>(conditions_[i]).notify_all();
+                                logger.stream().out() << "notify_all() AFTER";
+                            }
+                        }
+                    }
+                }
+
+                toBeStoped_.store(true);
                 if (thread_.joinable()) {
-                    thread_.detach();
-                })
-            // for (Transaction &t : transactionList_) {
-            //     t.~Transaction();
-            // }
-            // CATCH_ALL_EXCEPTIONS(
-            //     if (thread_.joinable()) {
-            //         thread_.join();
-            //     })
+                    logger.stream().out() << " thread_.join() BEFORE";
+                    thread_.join();
+                }
+
+                logger.stream().out() << " thread_.join() AFTER";
+            })
         }
 
         void start()
@@ -123,6 +137,7 @@ namespace PapierMache::DbStuff {
             thread_ = std::thread{[this] {
                 try {
                     startService();
+                    logger.stream().out() << "Database service is stop.";
                 }
                 catch (std::exception &e) {
                     CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
@@ -461,6 +476,9 @@ namespace PapierMache::DbStuff {
                         id = std::get<0>(condition);
                     }
                     while (true) {
+                        if (threads_.shouldBeStopped(std::this_thread::get_id())) {
+                            return;
+                        }
                         { // Scoped Lock start
                             std::unique_lock<std::mutex> lock{std::get<1>(condition)};
                             logger.stream().out() << "------------------------------13.";
@@ -504,8 +522,11 @@ namespace PapierMache::DbStuff {
                     std::get<0>(sc) = "";
                     std::get<3>(sc) = false;
                 }
-                ThreadsMap threads;
                 while (true) {
+                    if (toBeStoped_.load()) {
+                        logger.stream().out() << "toBeStoped_: " << toBeStoped_.load();
+                        return;
+                    }
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                     std::string connectionId;
                     { // Scoped Lock start
@@ -525,8 +546,8 @@ namespace PapierMache::DbStuff {
                         std::lock_guard<std::mutex> lock{mt_};
                         t = startChildThread(connectionId);
                     } // Scoped Lock end
-                    threads.addThread(std::move(t));
-                    threads.cleanUp();
+                    threads_.addThread(std::move(t));
+                    threads_.cleanUp();
                 }
             }
             catch (std::exception &e) {
@@ -547,17 +568,21 @@ namespace PapierMache::DbStuff {
         // 上記bool用の条件変数
         std::condition_variable cond_;
 
-        // クライアントと子スレッドのセッションの状態
-        std::array<SessionCondition, 50> conditions_;
-
         // データベースサービスのメインスレッド
         std::thread thread_;
         // サービスが開始していればtrue
         bool isStarted_;
         std::mutex mt_;
 
+        // クライアントと子スレッドのセッションの状態
+        std::array<SessionCondition, 50> conditions_;
+        ThreadsMap threads_;
+
         // SessionConditionのConnectionのIdを設定する際に用いるミューテックス
         std::shared_mutex sharedMt_;
+
+        // データベースを終了すべき場合にtrue
+        std::atomic_bool toBeStoped_;
     };
 
     // Connection

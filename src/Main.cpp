@@ -62,6 +62,24 @@ int main()
             // logger.stream().out() << oss.str();
             // oss.str("");
             con2.close();
+
+            PapierMache::DbStuff::Connection con3 = db.getConnection();
+            data.clear();
+            req = "PLEASE:DELETE";
+            for (const char c : req) {
+                data.push_back(static_cast<std::byte>(c));
+            }
+            con3.beginTransaction();
+            con3.send(data);
+            con3.request();
+            con3.wait();
+            con3.receive(data);
+            // for (const auto b : data) {
+            //     oss << static_cast<char>(b);
+            // }
+            // logger.stream().out() << oss.str();
+            // oss.str("");
+            con3.close();
         }
 
         // throw std::runtime_error{"-----------------------AAAAAAAAAAAAAAA"};
