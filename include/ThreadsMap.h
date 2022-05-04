@@ -86,7 +86,7 @@ namespace PapierMache {
                     if (p.second) {
                         vec.push_back(p.first);
                         // finishedFlgがtrueのスレッドのみjoin
-                        logger.stream().out() << "thread id : " << p.first << " join for cleanup.";
+                        LOG << "thread id : " << p.first << " join for cleanup.";
                         threads_.at(p.first).join();
                     }
                 }

@@ -7,6 +7,7 @@
 
 #include <mutex>
 #include <sstream>
+#include <string>
 
 namespace PapierMache {
 
@@ -17,7 +18,13 @@ namespace PapierMache {
         class LogStream {
         public:
             LogStream(Logger<outT> &refLogger)
-                : refLogger_{refLogger}
+                : refLogger_{refLogger},
+                  isNullMode_{false}
+            {
+            }
+            LogStream(Logger<outT> &refLogger, bool isNullMode)
+                : refLogger_{refLogger},
+                  isNullMode_{isNullMode}
             {
             }
             ~LogStream()
@@ -27,8 +34,11 @@ namespace PapierMache {
                         refLogger_.out(buffer_);
                     })
             }
-            std::ostringstream &out()
+            std::ostream &out()
             {
+                if (isNullMode_) {
+                    return garbage_;
+                }
                 return buffer_;
             }
 
@@ -39,7 +49,8 @@ namespace PapierMache {
             // ムーブ演算
             LogStream(LogStream &&rhs)
                 : buffer_{std::move(rhs.buffer_)},
-                  refLogger_{rhs.refLogger_}
+                  refLogger_{rhs.refLogger_},
+                  isNullMode_{rhs.isNullMode_}
             {
             }
 
@@ -55,6 +66,8 @@ namespace PapierMache {
         private:
             std::ostringstream buffer_;
             Logger &refLogger_;
+            bool isNullMode_;
+            std::ostringstream garbage_;
         };
 
         Logger(outT &out)
@@ -66,9 +79,23 @@ namespace PapierMache {
             // noop
         }
 
-        LogStream stream()
+        LogStream stream(const std::string &prefix = "")
         {
-            return std::move(LogStream{*this});
+#ifdef WEB_LOG_MASK
+            if (prefix == "web" || prefix == "WEB") {
+                return std::move(LogStream{*this, true});
+            }
+#endif // WEB_LOG_MASK
+#ifdef DB_LOG_MASK
+            if (prefix == "db" || prefix == "DB") {
+                return std::move(LogStream{*this, true});
+            }
+#endif // DB_LOG_MASK
+            LogStream ls{*this};
+            if (prefix.length() > 0) {
+                ls.out() << prefix << ": ";
+            }
+            return std::move(ls);
         }
 
         Logger &out(std::ostringstream &log)

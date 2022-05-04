@@ -14,6 +14,10 @@
     catch (...) {                        \
     }
 
+#define LOG logger.stream().out()
+#define DB_LOG logger.stream("DB").out()
+#define WEB_LOG logger.stream("WEB").out()
+
 namespace PapierMache {
     template <typename outT>
     class Logger;

@@ -86,16 +86,16 @@ namespace PapierMache {
         {
             // コネクションをシャットダウン
             int shutDownResult = 0;
-            logger.stream().out() << "socket : " << socket_ << " shutdown BEFORE";
+            WEB_LOG << "socket : " << socket_ << " shutdown BEFORE";
             shutDownResult = shutdown(socket_, SD_BOTH);
-            logger.stream().out() << "socket : " << socket_ << " shutdown AFTER";
+            WEB_LOG << "socket : " << socket_ << " shutdown AFTER";
             if (shutDownResult == SOCKET_ERROR) {
-                logger.stream().out() << "socket : " << socket_ << " shutdown failed with error: " << WSAGetLastError();
+                WEB_LOG << "socket : " << socket_ << " shutdown failed with error: " << WSAGetLastError();
             }
             // コネクションをクローズ
-            logger.stream().out() << "socket : " << socket_ << " closesocket BEFORE";
+            WEB_LOG << "socket : " << socket_ << " closesocket BEFORE";
             closesocket(socket_);
-            logger.stream().out() << "socket : " << socket_ << " closesocket AFTER";
+            WEB_LOG << "socket : " << socket_ << " closesocket AFTER";
         }
 
     private:
@@ -132,10 +132,10 @@ namespace PapierMache {
                     monitor();
                 }
                 catch (std::exception &e) {
-                    CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
+                    CATCH_ALL_EXCEPTIONS(WEB_LOG << e.what();)
                 }
                 catch (...) {
-                    CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
+                    CATCH_ALL_EXCEPTIONS(WEB_LOG << "unexpected error or SEH exception.";)
                 }
             }};
         }
@@ -251,7 +251,7 @@ namespace PapierMache {
                                 sh.shutDownAndClose();
                             }
                             catch (std::exception &e) {
-                                logger.stream().out() << e.what();
+                                WEB_LOG << e.what();
                             }
                         });
 
@@ -260,9 +260,9 @@ namespace PapierMache {
                                                      [](SocketHolder sh) {
                                                          return sh.status() == SocketStatus::TO_CLOSE;
                                                      });
-                        logger.stream().out() << "----------1.sockets_.size : " << sockets_.size();
+                        WEB_LOG << "----------1.sockets_.size : " << sockets_.size();
                         sockets_.erase(result, sockets_.end());
-                        logger.stream().out() << "----------2.sockets_.size : " << sockets_.size();
+                        WEB_LOG << "----------2.sockets_.size : " << sockets_.size();
 
                         // 容量オーバーであったソケットがあればクローズ
                         std::for_each(overCapacity_.begin(), overCapacity_.end(), [](SocketHolder sh) {
@@ -270,7 +270,7 @@ namespace PapierMache {
                                 sh.shutDownAndClose();
                             }
                             catch (std::exception &e) {
-                                logger.stream().out() << e.what();
+                                WEB_LOG << e.what();
                             }
                         });
                         overCapacity_.clear();
@@ -279,7 +279,7 @@ namespace PapierMache {
                 }
             }
             catch (std::exception &e) {
-                logger.stream().out() << e.what();
+                WEB_LOG << e.what();
             }
         }
 
@@ -322,7 +322,7 @@ namespace PapierMache {
                 do {
                     ++count;
                     memset(recvBuf, 0, sizeof(recvBuf));
-                    logger.stream().out() << "socket : " << clientSocket << " recv BEFORE";
+                    WEB_LOG << "socket : " << clientSocket << " recv BEFORE";
                     SocketStatus s = refSocketManager_.setStatusIfEnable(clientSocket, SocketStatus::RECV);
                     if (s == SocketStatus::TO_CLOSE || s == SocketStatus::SOCKET_IS_NONE) {
                         // この場合は処理を進められないのでループを抜ける
@@ -330,7 +330,7 @@ namespace PapierMache {
                     }
                     result = recv(clientSocket, recvBuf, sizeof(recvBuf), 0);
                     s = refSocketManager_.setStatusIfEnable(clientSocket, SocketStatus::RECEIVING);
-                    logger.stream().out() << "socket : " << clientSocket << " recv AFTER";
+                    WEB_LOG << "socket : " << clientSocket << " recv AFTER";
                     if (s == SocketStatus::TO_CLOSE || s == SocketStatus::SOCKET_IS_NONE) {
                         // この場合は処理を進められないのでrecvが正常終了であった場合はここでループを抜ける
                         if (result > 0) {
@@ -401,9 +401,9 @@ namespace PapierMache {
 
                             // ハンドラーによるリクエスト処理
                             refSocketManager_.setStatus(clientSocket, SocketStatus::PROCESSING);
-                            logger.stream().out() << "socket : " << clientSocket << " findHandlerNode BEFORE";
+                            WEB_LOG << "socket : " << clientSocket << " findHandlerNode BEFORE";
                             HandlerTreeNode &node = refHandlerTree_.findHandlerNode(request.path);
-                            logger.stream().out() << "socket : " << clientSocket << " findHandlerNode AFTER";
+                            WEB_LOG << "socket : " << clientSocket << " findHandlerNode AFTER";
 
                             HandlerResult hr;
                             if (node.isHandlerNull()) {
@@ -414,7 +414,7 @@ namespace PapierMache {
                                 hr = node.handler().handle(request);
                             }
 
-                            // logger.stream().out() << "----------------------" << count ;
+                            // WEB_LOG << "----------------------" << count ;
                             //  仮の応答メッセージ(ヘッダ部分)
                             std::ostringstream oss{""};
                             oss << "HTTP/1.1 "
@@ -445,7 +445,7 @@ namespace PapierMache {
                                     iSendResult = send(clientSocket, buf, index, 0);
                                     if (iSendResult == SOCKET_ERROR) {
                                         refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
-                                        logger.stream().out() << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError();
+                                        WEB_LOG << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError();
                                         break;
                                     }
                                     index = 0;
@@ -456,7 +456,7 @@ namespace PapierMache {
                                 iSendResult = send(clientSocket, buf, index, 0);
                                 if (iSendResult == SOCKET_ERROR) {
                                     refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
-                                    logger.stream().out() << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError();
+                                    WEB_LOG << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError();
                                 }
                             }
 
@@ -471,19 +471,19 @@ namespace PapierMache {
                         recvData.str("");
                         recvData.clear(std::stringstream::goodbit);
                         refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
-                        logger.stream().out() << "socket : " << clientSocket << " Connection closing...";
+                        WEB_LOG << "socket : " << clientSocket << " Connection closing...";
                     }
                     else {
                         recvData.str("");
                         recvData.clear(std::stringstream::goodbit);
                         refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
-                        logger.stream().out() << "socket : " << clientSocket << " recv failed with error: " << WSAGetLastError();
+                        WEB_LOG << "socket : " << clientSocket << " recv failed with error: " << WSAGetLastError();
                     }
                 } while (result > 0);
             }
             catch (std::exception &e) {
                 refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
-                logger.stream().out() << "socket : " << clientSocket << " error : " << e.what();
+                WEB_LOG << "socket : " << clientSocket << " error : " << e.what();
                 throw;
             }
         }
@@ -522,16 +522,16 @@ namespace PapierMache {
         ~WebServer()
         {
             try {
-                logger.stream().out() << "listen socket : " << listenSocket_ << " closesocket BEFORE";
+                WEB_LOG << "listen socket : " << listenSocket_ << " closesocket BEFORE";
                 closesocket(listenSocket_);
-                logger.stream().out() << "listen socket : " << listenSocket_ << " closesocket AFTER";
+                WEB_LOG << "listen socket : " << listenSocket_ << " closesocket AFTER";
                 WSACleanup();
             }
             catch (std::exception &e) {
-                CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
+                CATCH_ALL_EXCEPTIONS(WEB_LOG << e.what();)
             }
             catch (...) {
-                CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
+                CATCH_ALL_EXCEPTIONS(WEB_LOG << "unexpected error or SEH exception.";)
             }
         }
 
@@ -568,7 +568,7 @@ namespace PapierMache {
                 // winsockの初期化
                 iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
                 if (iResult != 0) {
-                    logger.stream().out() << "WSAStartup failed with error: " << iResult;
+                    WEB_LOG << "WSAStartup failed with error: " << iResult;
                     return 1;
                 }
 
@@ -581,14 +581,14 @@ namespace PapierMache {
                 // サーバーのアドレスとポートを解決する
                 iResult = getaddrinfo(NULL, port_.c_str(), &hints, &result);
                 if (iResult != 0) {
-                    logger.stream().out() << "getaddrinfo failed with error: " << iResult;
+                    WEB_LOG << "getaddrinfo failed with error: " << iResult;
                     return 1;
                 }
 
                 // ソケットの作成
                 listenSocket_ = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
                 if (listenSocket_ == INVALID_SOCKET) {
-                    logger.stream().out() << "socket failed with error: " << WSAGetLastError();
+                    WEB_LOG << "socket failed with error: " << WSAGetLastError();
                     freeaddrinfo(result);
                     return 1;
                 }
@@ -596,7 +596,7 @@ namespace PapierMache {
                 // TCPリスニングソケットの設定
                 iResult = bind(listenSocket_, result->ai_addr, (int)result->ai_addrlen);
                 if (iResult == SOCKET_ERROR) {
-                    logger.stream().out() << "bind failed with error: " << WSAGetLastError();
+                    WEB_LOG << "bind failed with error: " << WSAGetLastError();
                     freeaddrinfo(result);
                     return 1;
                 }
@@ -605,14 +605,14 @@ namespace PapierMache {
 
                 iResult = listen(listenSocket_, SOMAXCONN);
                 if (iResult == SOCKET_ERROR) {
-                    logger.stream().out() << "listen failed with error: " << WSAGetLastError();
+                    WEB_LOG << "listen failed with error: " << WSAGetLastError();
                     return 1;
                 }
                 isInitialized_ = true;
                 return 0;
             }
             catch (std::exception &e) {
-                logger.stream().out() << e.what();
+                WEB_LOG << e.what();
             }
 
             return 1;
@@ -630,18 +630,18 @@ namespace PapierMache {
                 socketManager.startMonitor();
                 while (1) {
 
-                    logger.stream().out() << "accept BEFORE";
+                    WEB_LOG << "accept BEFORE";
                     clientSocket = accept(listenSocket_, NULL, NULL);
-                    logger.stream().out() << "accept AFTER clientSocket is : " << clientSocket;
+                    WEB_LOG << "accept AFTER clientSocket is : " << clientSocket;
 
                     if (clientSocket == INVALID_SOCKET) {
-                        logger.stream().out() << "accept failed with error: " << WSAGetLastError();
+                        WEB_LOG << "accept failed with error: " << WSAGetLastError();
                         return 1;
                     }
 
                     if (!socketManager.addSocket(clientSocket)) {
                         // socketManagerの管理ソケット数が上限であった場合
-                        logger.stream().out() << "number of sockets is upper limits.";
+                        WEB_LOG << "number of sockets is upper limits.";
                         socketManager.addOverCapacitySocket(clientSocket);
                         continue;
                     }
@@ -653,22 +653,22 @@ namespace PapierMache {
                             receiver.receive(clientSocket);
                         }
                         catch (std::exception &e) {
-                            CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
+                            CATCH_ALL_EXCEPTIONS(WEB_LOG << e.what();)
                         }
                         catch (...) {
-                            CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
+                            CATCH_ALL_EXCEPTIONS(WEB_LOG << "unexpected error or SEH exception.";)
                         }
                     }};
 
                     threadsMap.addThread(std::move(t));
                     threadsMap.cleanUp();
-                    logger.stream().out() << "number of threads is : " << threadsMap.size();
+                    WEB_LOG << "number of threads is : " << threadsMap.size();
                 }
 
                 return 0;
             }
             catch (std::exception &e) {
-                logger.stream().out() << e.what();
+                WEB_LOG << e.what();
             }
 
             return 1;

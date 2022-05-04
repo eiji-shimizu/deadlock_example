@@ -32,7 +32,7 @@ namespace PapierMache::DbStuff {
     public:
         ~Connection()
         {
-            // logger.stream().out() << " ~Connection()";
+            // DB_LOG << " ~Connection()";
             //   noop
         }
 
@@ -98,7 +98,7 @@ namespace PapierMache::DbStuff {
         ~Database()
         {
             CATCH_ALL_EXCEPTIONS({
-                logger.stream().out() << " ~Database()";
+                DB_LOG << " ~Database()";
                 threads_.setFinishedFlagAll();
                 { // Scoped Lock
                     std::lock_guard<std::mutex> lock{mt_};
@@ -106,13 +106,13 @@ namespace PapierMache::DbStuff {
                         {
                             std::shared_lock<std::shared_mutex> sh(sharedMt_);
                             if (std::get<0>(conditions_[i]) != "") {
-                                logger.stream().out() << "notify_all() BEFORE";
+                                DB_LOG << "notify_all() BEFORE";
                                 std::lock_guard<std::mutex> lock2{std::get<1>(conditions_[i])};
                                 if (!std::get<3>(conditions_[i])) {
                                     std::get<3>(conditions_[i]) = true;
                                 }
                                 std::get<2>(conditions_[i]).notify_all();
-                                logger.stream().out() << "notify_all() AFTER";
+                                DB_LOG << "notify_all() AFTER";
                             }
                         }
                     }
@@ -120,11 +120,11 @@ namespace PapierMache::DbStuff {
 
                 toBeStoped_.store(true);
                 if (thread_.joinable()) {
-                    logger.stream().out() << " thread_.join() BEFORE";
+                    DB_LOG << " thread_.join() BEFORE";
                     thread_.join();
                 }
 
-                logger.stream().out() << " thread_.join() AFTER";
+                DB_LOG << " thread_.join() AFTER";
             })
         }
 
@@ -137,13 +137,13 @@ namespace PapierMache::DbStuff {
             thread_ = std::thread{[this] {
                 try {
                     startService();
-                    logger.stream().out() << "Database service is stop.";
+                    DB_LOG << "Database service is stop.";
                 }
                 catch (std::exception &e) {
-                    CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
+                    CATCH_ALL_EXCEPTIONS(DB_LOG << e.what();)
                 }
                 catch (...) {
-                    CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
+                    CATCH_ALL_EXCEPTIONS(DB_LOG << "unexpected error or SEH exception.";)
                 }
             }};
             isStarted_ = true;
@@ -159,7 +159,7 @@ namespace PapierMache::DbStuff {
         const Connection getConnection()
         {
             std::unique_lock<std::mutex> lock{mt_};
-            logger.stream().out() << "Database::getConnection()";
+            DB_LOG << "Database::getConnection()";
             if (isRequiredConnection_) {
                 throw std::runtime_error("Database::getConnection() : concurrency problems occurs.");
             }
@@ -193,7 +193,7 @@ namespace PapierMache::DbStuff {
         bool getData(const std::string connectionId, std::vector<std::byte> &out)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            logger.stream().out() << "connectionId: " << connectionId << " getData";
+            DB_LOG << "connectionId: " << connectionId << " getData";
             DataStream ds;
             swap(connectionId, ds);
             ds.swap(out);
@@ -203,7 +203,7 @@ namespace PapierMache::DbStuff {
         bool setData(const std::string connectionId, const std::vector<std::byte> &data)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            logger.stream().out() << "connectionId: " << connectionId << " setData";
+            DB_LOG << "connectionId: " << connectionId << " setData";
             return swap(connectionId, data);
         }
 
@@ -220,7 +220,7 @@ namespace PapierMache::DbStuff {
                 for (i = 0; i < conditions_.size(); ++i) {
                     const SessionCondition &sc = conditions_.at(i);
                     if (std::get<0>(sc) == connectionId) {
-                        logger.stream().out() << "------------------------------wait 1.";
+                        DB_LOG << "------------------------------wait 1.";
                         break;
                     }
                 }
@@ -228,15 +228,15 @@ namespace PapierMache::DbStuff {
             if (i == conditions_.size()) {
                 return;
             }
-            logger.stream().out() << "------------------------------wait 2.";
+            DB_LOG << "------------------------------wait 2.";
             std::unique_lock<std::mutex> lock{std::get<1>(conditions_.at(i))};
             if (std::get<3>(conditions_.at(i))) {
-                logger.stream().out() << "------------------------------wait 3.";
+                DB_LOG << "------------------------------wait 3.";
                 std::get<2>(conditions_.at(i)).wait(lock, [&refB = std::get<3>(conditions_.at(i))] {
                     return refB == false;
                 });
             }
-            logger.stream().out() << "------------------------------wait 4.";
+            DB_LOG << "------------------------------wait 4.";
         }
 
         bool isClosed(const std::string connectionId)
@@ -259,16 +259,16 @@ namespace PapierMache::DbStuff {
 
             ~Transaction()
             {
-                logger.stream().out() << " ~Transaction()";
+                DB_LOG << " ~Transaction()";
                 for (const auto &e : toCommit_) {
-                    logger.stream().out() << e.first;
+                    DB_LOG << e.first;
                     std::ostringstream oss{""};
                     for (const auto &v : e.second) {
                         for (const std::byte b : v) {
                             oss << static_cast<char>(b);
                         }
                     }
-                    logger.stream().out() << oss.str();
+                    DB_LOG << oss.str();
                 }
             }
 
@@ -319,7 +319,7 @@ namespace PapierMache::DbStuff {
 
             ~Table()
             {
-                logger.stream().out() << " ~Table()";
+                DB_LOG << " ~Table()";
                 // noop
             }
 
@@ -372,17 +372,17 @@ namespace PapierMache::DbStuff {
         bool swap(const std::string connectionId, const std::vector<std::byte> &data)
         {
             DataStream temp{data};
-            logger.stream().out() << "connectionId: " << connectionId << " const swap BEFOER";
+            DB_LOG << "connectionId: " << connectionId << " const swap BEFOER";
             dataStreams_.at(connectionId).swap(temp);
-            logger.stream().out() << "connectionId: " << connectionId << " const swap AFTER";
+            DB_LOG << "connectionId: " << connectionId << " const swap AFTER";
             return true;
         }
 
         bool swap(const std::string connectionId, std::vector<std::byte> &data)
         {
-            logger.stream().out() << "connectionId: " << connectionId << " swap BEFOER";
+            DB_LOG << "connectionId: " << connectionId << " swap BEFOER";
             dataStreams_.at(connectionId).swap(data);
-            logger.stream().out() << "connectionId: " << connectionId << " swap AFTER";
+            DB_LOG << "connectionId: " << connectionId << " swap AFTER";
             return true;
         }
 
@@ -399,20 +399,20 @@ namespace PapierMache::DbStuff {
         // 処理が完了したことをコネクションに通知する
         void notifyImpl(const std::string connectionId, const bool b)
         {
-            logger.stream().out() << "------------------------------notifyImpl 1.";
+            DB_LOG << "------------------------------notifyImpl 1.";
             // 読み込みロック
             std::shared_lock<std::shared_mutex> shLock(sharedMt_);
             for (int i = 0; i < conditions_.size(); ++i) {
                 const SessionCondition &sc = conditions_.at(i);
                 if (std::get<0>(sc) == connectionId) {
                     // ここからは書き込み操作
-                    logger.stream().out() << "------------------------------notifyImpl 2. " << b;
+                    DB_LOG << "------------------------------notifyImpl 2. " << b;
                     { // Scoped Lock start
                         std::lock_guard<std::mutex> lock{std::get<1>(conditions_.at(i))};
                         std::get<3>(conditions_.at(i)) = b;
                     } // Scoped Lock end
                     std::get<2>(conditions_.at(i)).notify_one();
-                    logger.stream().out() << "------------------------------notifyImpl 3.";
+                    DB_LOG << "------------------------------notifyImpl 3.";
                     break;
                 }
             }
@@ -458,7 +458,7 @@ namespace PapierMache::DbStuff {
             for (i = 0; i < conditions_.size(); ++i) {
                 const SessionCondition &sc = conditions_.at(i);
                 if (std::get<0>(sc) == connectionId) {
-                    logger.stream().out() << "------------------------------wait 1.";
+                    DB_LOG << "------------------------------wait 1.";
                     break;
                 }
             }
@@ -466,10 +466,10 @@ namespace PapierMache::DbStuff {
                 throw std::runtime_error{"Database::startChildThread() : " + std::string{"should not reach here."}};
             }
 
-            logger.stream().out() << "------------------------------11.";
+            DB_LOG << "------------------------------11.";
             std::thread t{[&condition = conditions_.at(i), this] {
                 try {
-                    logger.stream().out() << "------------------------------12.";
+                    DB_LOG << "------------------------------12.";
                     std::string id;
                     { // 読み込みロック
                         std::shared_lock<std::shared_mutex> lock(sharedMt_);
@@ -481,15 +481,15 @@ namespace PapierMache::DbStuff {
                         }
                         { // Scoped Lock start
                             std::unique_lock<std::mutex> lock{std::get<1>(condition)};
-                            logger.stream().out() << "------------------------------13.";
+                            DB_LOG << "------------------------------13.";
                             if (!std::get<3>(condition)) {
-                                logger.stream().out() << "------------------------------14.";
+                                DB_LOG << "------------------------------14.";
                                 std::get<2>(condition).wait(lock, [&refB = std::get<3>(condition)] {
                                     return refB;
                                 });
                             }
                         } // Scoped Lock end
-                        logger.stream().out() << "connection id: " << id << " is processing.";
+                        DB_LOG << "connection id: " << id << " is processing.";
 
                         // TODO: 要求を処理
                         std::vector<std::byte> data;
@@ -506,10 +506,10 @@ namespace PapierMache::DbStuff {
                     }
                 }
                 catch (std::exception &e) {
-                    CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
+                    CATCH_ALL_EXCEPTIONS(DB_LOG << e.what();)
                 }
                 catch (...) {
-                    CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
+                    CATCH_ALL_EXCEPTIONS(DB_LOG << "unexpected error or SEH exception.";)
                 }
             }};
             return std::move(t);
@@ -524,7 +524,7 @@ namespace PapierMache::DbStuff {
                 }
                 while (true) {
                     if (toBeStoped_.load()) {
-                        logger.stream().out() << "toBeStoped_: " << toBeStoped_.load();
+                        DB_LOG << "toBeStoped_: " << toBeStoped_.load();
                         return;
                     }
                     std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -551,7 +551,7 @@ namespace PapierMache::DbStuff {
                 }
             }
             catch (std::exception &e) {
-                logger.stream().out() << e.what();
+                DB_LOG << e.what();
             }
         }
 

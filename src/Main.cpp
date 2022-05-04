@@ -20,6 +20,9 @@ PapierMache::DbStuff::Database database{};
 int main()
 {
     try {
+        LOG << "normal";
+        WEB_LOG << "web";
+        DB_LOG << "db";
         {
             PapierMache::DbStuff::Database db{};
             db.start();
@@ -84,32 +87,32 @@ int main()
 
         // throw std::runtime_error{"-----------------------AAAAAAAAAAAAAAA"};
 
-        logger.stream().out() << "web configuration is";
-        logger.stream().out() << "webServer PORT: " << PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT");
-        logger.stream().out() << "webServer MAX_SOCKETS: " << PapierMache::getValue<int>(webConfiguration, "webServer", "MAX_SOCKETS");
-        logger.stream().out() << "threadsMap CLEAN_UP_POINT: " << PapierMache::getValue<int>(webConfiguration, "threadsMap", "CLEAN_UP_POINT");
-        logger.stream().out() << "socketManager MAX: " << PapierMache::getValue<int>(webConfiguration, "socketManager", "MAX");
-        logger.stream().out() << "socketManager TIMEOUT: " << PapierMache::getValue<int>(webConfiguration, "socketManager", "TIMEOUT");
+        WEB_LOG << "web configuration is";
+        WEB_LOG << "webServer PORT: " << PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT");
+        WEB_LOG << "webServer MAX_SOCKETS: " << PapierMache::getValue<int>(webConfiguration, "webServer", "MAX_SOCKETS");
+        WEB_LOG << "threadsMap CLEAN_UP_POINT: " << PapierMache::getValue<int>(webConfiguration, "threadsMap", "CLEAN_UP_POINT");
+        WEB_LOG << "socketManager MAX: " << PapierMache::getValue<int>(webConfiguration, "socketManager", "MAX");
+        WEB_LOG << "socketManager TIMEOUT: " << PapierMache::getValue<int>(webConfiguration, "socketManager", "TIMEOUT");
 
         PapierMache::WebServer server{PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT"),
                                       PapierMache::getValue<int>(webConfiguration, "webServer", "MAX_SOCKETS")};
-        logger.stream().out() << "server initialization start.";
+        WEB_LOG << "server initialization start.";
         if (server.initialize() != 0) {
-            logger.stream().out() << "server initialization failed.";
+            WEB_LOG << "server initialization failed.";
             return 1;
         }
-        logger.stream().out() << "server initialization end.";
+        WEB_LOG << "server initialization end.";
         server.start();
         return 0;
     }
     catch (std::exception &e) {
-        logger.stream().out() << "----------------------------2.";
-        CATCH_ALL_EXCEPTIONS(logger.stream().out() << e.what();)
+        LOG << "----------------------------2.";
+        CATCH_ALL_EXCEPTIONS(LOG << e.what();)
     }
     catch (...) {
-        CATCH_ALL_EXCEPTIONS(logger.stream().out() << "unexpected error or SEH exception.";)
+        CATCH_ALL_EXCEPTIONS(LOG << "unexpected error or SEH exception.";)
     }
-    logger.stream().out() << "----------------------------3.";
+    LOG << "----------------------------3.";
 
     return 1;
 }
