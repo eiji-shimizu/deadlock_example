@@ -7,7 +7,6 @@
 
 #include <mutex>
 #include <sstream>
-#include <string>
 
 namespace PapierMache {
 

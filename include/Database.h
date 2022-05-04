@@ -7,6 +7,7 @@
 #include "Logger.h"
 #include "ThreadsMap.h"
 #include "UUID.h"
+#include "Utils.h"
 
 #include <algorithm>
 #include <array>
@@ -48,16 +49,14 @@ namespace PapierMache::DbStuff {
             }
         }
 
-        // トランザクションを開始する
-        bool beginTransaction();
         // 引数のデータを送信する
         bool send(const std::vector<std::byte> &data);
         // 引数にデータを受信する
         bool receive(std::vector<std::byte> &out);
         // 送信したデータの処理を依頼する
-        void request();
+        bool request();
         // 処理結果を待つ
-        void wait();
+        int wait();
         // このコネクションがクローズしていればtrue
         bool isClosed();
 
@@ -99,9 +98,11 @@ namespace PapierMache::DbStuff {
         {
             CATCH_ALL_EXCEPTIONS({
                 DB_LOG << " ~Database()";
-                threads_.setFinishedFlagAll();
+                // threads_.setFinishedFlagAll();
+                toBeStoped_.store(true);
                 { // Scoped Lock
                     std::lock_guard<std::mutex> lock{mt_};
+                    LOG << "~Database()";
                     for (int i = 0; i < conditions_.size(); ++i) {
                         {
                             std::shared_lock<std::shared_mutex> sh(sharedMt_);
@@ -117,13 +118,14 @@ namespace PapierMache::DbStuff {
                         }
                     }
                 }
-
-                toBeStoped_.store(true);
+                // threads_.setFinishedFlagAll();
                 if (thread_.joinable()) {
+                    LOG << " thread_.join() BEFORE";
                     DB_LOG << " thread_.join() BEFORE";
                     thread_.join();
                 }
 
+                LOG << " thread_.join() AFTER";
                 DB_LOG << " thread_.join() AFTER";
             })
         }
@@ -137,7 +139,8 @@ namespace PapierMache::DbStuff {
             thread_ = std::thread{[this] {
                 try {
                     startService();
-                    DB_LOG << "Database service is stop.";
+                    threads_.setFinishedFlagAll();
+                    LOG << "Database service is stop.";
                 }
                 catch (std::exception &e) {
                     CATCH_ALL_EXCEPTIONS(DB_LOG << e.what();)
@@ -182,14 +185,6 @@ namespace PapierMache::DbStuff {
         }
 
         // コネクションとのインターフェース関数 ここから
-        bool setTransaction(const std::string connectionId)
-        {
-            std::lock_guard<std::mutex> lock{mt_};
-            Transaction t{transactionId_++, connectionId};
-            transactionList_.push_back(t);
-            return true;
-        }
-
         bool getData(const std::string connectionId, std::vector<std::byte> &out)
         {
             std::lock_guard<std::mutex> lock{mt_};
@@ -207,12 +202,21 @@ namespace PapierMache::DbStuff {
             return swap(connectionId, data);
         }
 
-        void toNotify(const std::string connectionId, const bool b = false)
+        // 引数のコネクションIDに対応するコネクションに処理完了を通知する
+        // 第2引数がtrueの場合はコネクション側からの処理依頼になる
+        // 戻り値: 通知が設定されればtrue
+        bool toNotify(const std::string connectionId, const bool b = false)
         {
-            notifyImpl(connectionId, b);
+            return notifyImpl(connectionId, b);
         }
 
-        void wait(const std::string connectionId)
+        // 引数のコネクションIDに対応する処理完了を待つ関数
+        // クライアント側(コネクション)から呼び出される
+        // 戻り値
+        // 0: 成功
+        // -1: まだ対応する処理のためのセッションが開始していない
+        // -2: その他のエラー
+        int wait(const std::string connectionId)
         {
             int i = 0;
             { // 読み込みロック
@@ -221,12 +225,15 @@ namespace PapierMache::DbStuff {
                     const SessionCondition &sc = conditions_.at(i);
                     if (std::get<0>(sc) == connectionId) {
                         DB_LOG << "------------------------------wait 1.";
+                        LOG << "wait " << connectionId;
                         break;
                     }
                 }
             }
             if (i == conditions_.size()) {
-                return;
+                LOG << "-------------------------bugbug";
+                LOG << "Session for connection id:" << connectionId << " is not found.";
+                return -1;
             }
             DB_LOG << "------------------------------wait 2.";
             std::unique_lock<std::mutex> lock{std::get<1>(conditions_.at(i))};
@@ -237,6 +244,7 @@ namespace PapierMache::DbStuff {
                 });
             }
             DB_LOG << "------------------------------wait 4.";
+            return 0;
         }
 
         bool isClosed(const std::string connectionId)
@@ -397,25 +405,33 @@ namespace PapierMache::DbStuff {
         }
 
         // 処理が完了したことをコネクションに通知する
-        void notifyImpl(const std::string connectionId, const bool b)
+        bool notifyImpl(const std::string connectionId, const bool b)
         {
-            DB_LOG << "------------------------------notifyImpl 1.";
             // 読み込みロック
             std::shared_lock<std::shared_mutex> shLock(sharedMt_);
             for (int i = 0; i < conditions_.size(); ++i) {
                 const SessionCondition &sc = conditions_.at(i);
                 if (std::get<0>(sc) == connectionId) {
                     // ここからは書き込み操作
-                    DB_LOG << "------------------------------notifyImpl 2. " << b;
                     { // Scoped Lock start
                         std::lock_guard<std::mutex> lock{std::get<1>(conditions_.at(i))};
                         std::get<3>(conditions_.at(i)) = b;
                     } // Scoped Lock end
                     std::get<2>(conditions_.at(i)).notify_one();
-                    DB_LOG << "------------------------------notifyImpl 3.";
-                    break;
+                    LOG << connectionId << " notifyImpl: OK" << b;
+                    return true;
                 }
             }
+            LOG << connectionId << " notifyImpl: NG" << b;
+            return false;
+        }
+
+        bool addTransaction(const std::string connectionId)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            Transaction t{transactionId_++, connectionId};
+            transactionList_.push_back(t);
+            return true;
         }
 
         void addTransactionTarget(const std::string connectionId, const std::string tableName, const std::vector<std::byte> &bytes)
@@ -432,6 +448,24 @@ namespace PapierMache::DbStuff {
                 if (table.name() == tableName) {
                     table.setTarget(1, transactionId);
                 }
+            }
+        }
+
+        bool isTransactionExists(const std::string connectionId)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            for (const Transaction &t : transactionList_) {
+                if (t.connectionId() == connectionId) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        void toBytesDataFromString(const std::string &s, std::vector<std::byte> &out)
+        {
+            for (const char c : s) {
+                out.push_back(static_cast<std::byte>(c));
             }
         }
 
@@ -476,7 +510,13 @@ namespace PapierMache::DbStuff {
                         id = std::get<0>(condition);
                     }
                     while (true) {
-                        if (threads_.shouldBeStopped(std::this_thread::get_id())) {
+                        // if (threads_.shouldBeStopped(std::this_thread::get_id())) {
+                        //     // TODO: 終了処理
+                        //     LOG << "child thread return.";
+                        //     return;
+                        // }
+                        if (toBeStoped_.load()) {
+                            LOG << "child thread return.";
                             return;
                         }
                         { // Scoped Lock start
@@ -489,18 +529,66 @@ namespace PapierMache::DbStuff {
                                 });
                             }
                         } // Scoped Lock end
-                        DB_LOG << "connection id: " << id << " is processing.";
+                        if (toBeStoped_.load()) {
+                            LOG << "child thread return.";
+                            return;
+                        }
+                        LOG << "connection id: " << id << " is processing.";
 
                         // TODO: 要求を処理
                         std::vector<std::byte> data;
+                        std::vector<std::byte> response;
                         getData(id, data);
+                        // 最初の要求はトランザクションの開始であること
+                        // 続く要求はこのコネクションのユーザーに許可された処理であること
+                        // トランザクションがない状態で他の要求が来た場合はエラー
+                        // またトランザクションがある状態でトランザクションの要求が来た場合もエラーとする
+                        std::ostringstream oss{""};
+                        int i = 0;
+                        for (i = 0; i < data.size() && i < 7; ++i) {
+                            oss << static_cast<char>(data[i]);
+                        }
+                        if (toLower(oss.str()) != "please:") {
+                            toBytesDataFromString("parse error.", response);
+                            setData(id, std::cref(response));
+                            toNotify(id);
+                            continue;
+                        }
+                        oss.str("");
+                        for (; i < data.size() && i < 7 + 11; ++i) {
+                            oss << static_cast<char>(data[i]);
+                        }
+                        if (isTransactionExists(id) && toLower(oss.str()) == "transaction") {
+                            toBytesDataFromString("transaction is already exists.", response);
+                            setData(id, std::cref(response));
+                            toNotify(id);
+                            continue;
+                        }
+                        if (!isTransactionExists(id) && toLower(oss.str()) != "transaction") {
+                            toBytesDataFromString("cannot find transaction.", response);
+                            setData(id, std::cref(response));
+                            toNotify(id);
+                            continue;
+                        }
+                        if (!isTransactionExists(id) && toLower(oss.str()) == "transaction") {
+                            if (addTransaction(id)) {
+                                toBytesDataFromString("transaction start is succeed.", response);
+                                setData(id, std::cref(response));
+                                toNotify(id);
+                            }
+                            else {
+                                toBytesDataFromString("transaction start is failed.", response);
+                                setData(id, std::cref(response));
+                                toNotify(id);
+                            }
+                            continue;
+                        }
 
                         addTransactionTarget(id, "tableName", data);
-
-                        std::string closeRequest = " TEST MESSAGE.";
-                        for (const char c : closeRequest) {
-                            data.push_back(static_cast<std::byte>(c));
-                        }
+                        LOG << "LOOP END: " << id;
+                        data.push_back(static_cast<std::byte>(' '));
+                        data.push_back(static_cast<std::byte>('O'));
+                        data.push_back(static_cast<std::byte>('K'));
                         setData(id, std::cref(data));
                         toNotify(id);
                     }
@@ -586,11 +674,6 @@ namespace PapierMache::DbStuff {
     };
 
     // Connection
-    inline bool Connection::beginTransaction()
-    {
-        return refDb_.setTransaction(id_);
-    }
-
     inline bool Connection::send(const std::vector<std::byte> &data)
     {
         // クライアントからの情報送信はDB内部の送受信用バッファに情報を入れる
@@ -603,14 +686,14 @@ namespace PapierMache::DbStuff {
         return refDb_.getData(id_, out);
     }
 
-    inline void Connection::request()
+    inline bool Connection::request()
     {
-        refDb_.toNotify(id_, true);
+        return refDb_.toNotify(id_, true);
     }
 
-    inline void Connection::wait()
+    inline int Connection::wait()
     {
-        refDb_.wait(id_);
+        return refDb_.wait(id_);
     }
 
     inline bool Connection::isClosed()

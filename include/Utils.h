@@ -64,6 +64,15 @@ namespace PapierMache {
         return oss.str();
     }
 
+    inline std::string toLower(const std::string &s)
+    {
+        std::ostringstream oss{""};
+        for (const unsigned char c : s) {
+            oss << static_cast<char>(tolower(c));
+        }
+        return oss.str();
+    }
+
     template <typename T>
     inline char *as_bytes(T &i)
     {
