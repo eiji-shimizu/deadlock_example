@@ -24,17 +24,17 @@ namespace PapierMache {
         }
         ~ThreadsMap(){
             CATCH_ALL_EXCEPTIONS({
-                LOG << "~ThreadsMap() BEFORE";
-                LOG << threads_.size();
+                DEBUG_LOG << "~ThreadsMap() BEFORE";
+                DEBUG_LOG << threads_.size();
                 for (auto &e : threads_) {
                     if (e.second.joinable()) {
-                        LOG << "finishedFlag_: " << finishedFlag_.at(e.first);
-                        LOG << "e.second.join() BEFORE";
+                        DEBUG_LOG << "finishedFlag_: " << finishedFlag_.at(e.first);
+                        DEBUG_LOG << "e.second.join() BEFORE";
                         e.second.join();
-                        LOG << "e.second.join() AFTER";
+                        DEBUG_LOG << "e.second.join() AFTER";
                     }
                 }
-                LOG << "~ThreadsMap() AFTER";
+                DEBUG_LOG << "~ThreadsMap() AFTER";
             })}
 
         // コピー禁止
@@ -68,7 +68,7 @@ namespace PapierMache {
         void setFinishedFlagAll()
         {
             std::lock_guard<std::mutex> lock{mt_};
-            LOG << "finishedFlag_.size(): " << finishedFlag_.size();
+            DEBUG_LOG << "finishedFlag_.size(): " << finishedFlag_.size();
             for (auto &e : finishedFlag_) {
                 finishedFlag_.at(e.first) = true;
             }
@@ -79,7 +79,7 @@ namespace PapierMache {
         {
             std::lock_guard<std::mutex> lock{mt_};
             if (finishedFlag_.find(id) != finishedFlag_.end()) {
-                LOG << "finishedFlag_.at(id): " << finishedFlag_.at(id);
+                DEBUG_LOG << "finishedFlag_.at(id): " << finishedFlag_.at(id);
                 return finishedFlag_.at(id);
             }
             return false;
@@ -94,7 +94,7 @@ namespace PapierMache {
                     if (p.second) {
                         vec.push_back(p.first);
                         // finishedFlgがtrueのスレッドのみjoin
-                        LOG << "thread id : " << p.first << " join for cleanup.";
+                        DEBUG_LOG << "thread id : " << p.first << " join for cleanup.";
                         threads_.at(p.first).join();
                     }
                 }

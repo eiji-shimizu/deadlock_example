@@ -9,4 +9,7 @@
 //#define WEB_LOG_MASK
 #define DB_LOG_MASK
 
+// デバッグログを出力しない場合はコメントアウトする
+#define DEBUG_LOG_MODE
+
 #endif DEADLOCK_EXAMPLE_GENERAL_INCLUDED

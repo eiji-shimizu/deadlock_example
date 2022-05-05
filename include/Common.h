@@ -15,6 +15,7 @@
     }
 
 #define LOG logger.stream().out()
+#define DEBUG_LOG logger.stream().debug()
 #define DB_LOG logger.stream("DB").out()
 #define WEB_LOG logger.stream("WEB").out()
 
@@ -31,6 +32,6 @@ extern PapierMache::Logger<std::ostream> logger;
 
 extern const std::map<std::string, std::map<std::string, std::string>> webConfiguration;
 
-//extern PapierMache::DbStuff::Database database;
+// extern PapierMache::DbStuff::Database database;
 
 #endif // DEADLOCK_EXAMPLE_COMMON_INCLUDED

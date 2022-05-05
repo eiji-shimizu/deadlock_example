@@ -98,7 +98,7 @@ namespace PapierMache::DbStuff {
         {
             CATCH_ALL_EXCEPTIONS({
                 DB_LOG << " ~Database()";
-                LOG << "~Database()";
+                DEBUG_LOG << "~Database()";
                 toBeStoped_.store(true);
                 for (int i = 0; i < conditions_.size(); ++i) {
                     DB_LOG << "notify_all() BEFORE";
@@ -110,12 +110,12 @@ namespace PapierMache::DbStuff {
                     DB_LOG << "notify_all() AFTER";
                 }
                 if (thread_.joinable()) {
-                    LOG << " thread_.join() BEFORE";
+                    DEBUG_LOG << " thread_.join() BEFORE";
                     DB_LOG << " thread_.join() BEFORE";
                     thread_.join();
                 }
 
-                LOG << " thread_.join() AFTER";
+                DEBUG_LOG << " thread_.join() AFTER";
                 DB_LOG << " thread_.join() AFTER";
             })
         }
@@ -130,7 +130,7 @@ namespace PapierMache::DbStuff {
                 try {
                     startService();
                     threads_.setFinishedFlagAll();
-                    LOG << "Database service is stop.";
+                    DEBUG_LOG << "Database service is stop.";
                 }
                 catch (std::exception &e) {
                     CATCH_ALL_EXCEPTIONS(DB_LOG << e.what();)
@@ -215,14 +215,14 @@ namespace PapierMache::DbStuff {
                     const SessionCondition &sc = conditions_.at(i);
                     if (std::get<0>(sc) == connectionId) {
                         DB_LOG << "------------------------------wait 1.";
-                        LOG << "wait " << connectionId;
+                        DEBUG_LOG << "wait " << connectionId;
                         break;
                     }
                 }
             }
             if (i == conditions_.size()) {
-                LOG << "-------------------------bugbug";
-                LOG << "Session for connection id:" << connectionId << " is not found.";
+                DEBUG_LOG << "-------------------------bugbug";
+                DEBUG_LOG << "Session for connection id:" << connectionId << " is not found.";
                 return -1;
             }
             DB_LOG << "------------------------------wait 2.";
@@ -408,11 +408,11 @@ namespace PapierMache::DbStuff {
                         std::get<3>(conditions_.at(i)) = b;
                     } // Scoped Lock end
                     std::get<2>(conditions_.at(i)).notify_one();
-                    LOG << connectionId << " notifyImpl: OK" << b;
+                    DEBUG_LOG << connectionId << " notifyImpl: OK" << b;
                     return true;
                 }
             }
-            LOG << connectionId << " notifyImpl: NG" << b;
+            DEBUG_LOG << connectionId << " notifyImpl: NG" << b;
             return false;
         }
 
@@ -502,11 +502,11 @@ namespace PapierMache::DbStuff {
                     while (true) {
                         // if (threads_.shouldBeStopped(std::this_thread::get_id())) {
                         //     // TODO: 終了処理
-                        //     LOG << "child thread return.";
+                        //     DEBUG_LOG << "child thread return.";
                         //     return;
                         // }
                         if (toBeStoped_.load()) {
-                            LOG << "child thread return.";
+                            DEBUG_LOG << "child thread return.";
                             return;
                         }
                         { // Scoped Lock start
@@ -520,10 +520,10 @@ namespace PapierMache::DbStuff {
                             }
                         } // Scoped Lock end
                         if (toBeStoped_.load()) {
-                            LOG << "child thread return.";
+                            DEBUG_LOG << "child thread return.";
                             return;
                         }
-                        LOG << "connection id: " << id << " is processing.";
+                        DEBUG_LOG << "connection id: " << id << " is processing.";
 
                         // TODO: 要求を処理
                         std::vector<std::byte> data;
@@ -575,7 +575,7 @@ namespace PapierMache::DbStuff {
                         }
 
                         addTransactionTarget(id, "tableName", data);
-                        LOG << "LOOP END: " << id;
+                        DEBUG_LOG << "LOOP END: " << id;
                         data.push_back(static_cast<std::byte>(' '));
                         data.push_back(static_cast<std::byte>('O'));
                         data.push_back(static_cast<std::byte>('K'));

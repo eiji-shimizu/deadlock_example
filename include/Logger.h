@@ -41,6 +41,19 @@ namespace PapierMache {
                 return buffer_;
             }
 
+            class NullLogStream;
+#ifdef DEBUG_LOG_MODE
+            std::ostream &debug()
+            {
+                return out();
+            }
+#else
+            NullLogStream &debug()
+            {
+                return nullLogStream_;
+            }
+#endif
+
             // コピー禁止
             LogStream(const LogStream &) = delete;
             LogStream &operator=(const LogStream &) = delete;
@@ -63,10 +76,20 @@ namespace PapierMache {
             }
 
         private:
+            class NullLogStream {
+            public:
+                template <typename T>
+                NullLogStream &operator<<(T &&)
+                {
+                    return *this;
+                }
+            };
+
             std::ostringstream buffer_;
             Logger &refLogger_;
             bool isNullMode_;
             std::ostringstream garbage_;
+            NullLogStream nullLogStream_;
         };
 
         Logger(outT &out)
