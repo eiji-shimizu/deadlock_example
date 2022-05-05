@@ -62,12 +62,6 @@ void testFunc(PapierMache::DbStuff::Connection con, std::string name, std::strin
 int main()
 {
     try {
-        LOG << "normal";
-        DEBUG_LOG << "debug"
-                  << "log"
-                  << " enable";
-        WEB_LOG << "web";
-        DB_LOG << "db";
         {
             PapierMache::DbStuff::Database db{};
 
@@ -111,7 +105,16 @@ int main()
             return 1;
         }
         WEB_LOG << "server initialization end.";
-        server.start();
+        if (server.start() != 0) {
+            WEB_LOG << "server start failed.";
+            return 1;
+        }
+        char quit = ' ';
+        while (std::cin >> quit) {
+            if (quit == 'q')
+                break;
+        }
+        LOG << "application finish.";
         return 0;
     }
     catch (std::exception &e) {

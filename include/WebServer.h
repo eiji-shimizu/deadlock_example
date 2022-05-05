@@ -507,7 +507,8 @@ namespace PapierMache {
             : port_{port},
               maxSockets_{maxSockets},
               listenSocket_{INVALID_SOCKET},
-              isInitialized_{false}
+              isInitialized_{false},
+              isStarted_{false}
         {
         }
 
@@ -515,7 +516,8 @@ namespace PapierMache {
             : port_{"27015"},
               maxSockets_{10},
               listenSocket_{INVALID_SOCKET},
-              isInitialized_{false}
+              isInitialized_{false},
+              isStarted_{false}
         {
         }
 
@@ -620,6 +622,32 @@ namespace PapierMache {
 
         int start()
         {
+            std::lock_guard<std::mutex> lock{mt_};
+            if (!isInitialized_) {
+                return 1;
+            }
+            if (isStarted_) {
+                return 0;
+            }
+            thread_ = std::thread{[this] {
+                try {
+                    startServer();
+                    DEBUG_LOG << "web server is stop.";
+                }
+                catch (std::exception &e) {
+                    CATCH_ALL_EXCEPTIONS(DB_LOG << e.what();)
+                }
+                catch (...) {
+                    CATCH_ALL_EXCEPTIONS(DB_LOG << "unexpected error or SEH exception.";)
+                }
+            }};
+            isStarted_ = true;
+            return 0;
+        }
+
+    private:
+        void startServer()
+        {
             try {
                 SOCKET clientSocket = INVALID_SOCKET;
                 ThreadsMap threadsMap{getValue<int>(webConfiguration, "threadsMap", "CLEAN_UP_POINT")};
@@ -636,7 +664,7 @@ namespace PapierMache {
 
                     if (clientSocket == INVALID_SOCKET) {
                         WEB_LOG << "accept failed with error: " << WSAGetLastError();
-                        return 1;
+                        return;
                     }
 
                     if (!socketManager.addSocket(clientSocket)) {
@@ -664,23 +692,21 @@ namespace PapierMache {
                     threadsMap.cleanUp();
                     WEB_LOG << "number of threads is : " << threadsMap.size();
                 }
-
-                return 0;
             }
             catch (std::exception &e) {
                 WEB_LOG << e.what();
             }
-
-            return 1;
         }
 
-    private:
         const std::string port_;
         const int maxSockets_;
         SOCKET listenSocket_;
         HandlerTree handlerTree_;
         bool isInitialized_;
+        bool isStarted_;
         std::mutex mt_;
+        // WEBサーバーのメインスレッド
+        std::thread thread_;
     };
 
 } // namespace PapierMache
