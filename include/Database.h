@@ -98,27 +98,17 @@ namespace PapierMache::DbStuff {
         {
             CATCH_ALL_EXCEPTIONS({
                 DB_LOG << " ~Database()";
-                // threads_.setFinishedFlagAll();
+                LOG << "~Database()";
                 toBeStoped_.store(true);
-                { // Scoped Lock
-                    std::lock_guard<std::mutex> lock{mt_};
-                    LOG << "~Database()";
-                    for (int i = 0; i < conditions_.size(); ++i) {
-                        {
-                            std::shared_lock<std::shared_mutex> sh(sharedMt_);
-                            if (std::get<0>(conditions_[i]) != "") {
-                                DB_LOG << "notify_all() BEFORE";
-                                std::lock_guard<std::mutex> lock2{std::get<1>(conditions_[i])};
-                                if (!std::get<3>(conditions_[i])) {
-                                    std::get<3>(conditions_[i]) = true;
-                                }
-                                std::get<2>(conditions_[i]).notify_all();
-                                DB_LOG << "notify_all() AFTER";
-                            }
-                        }
-                    }
+                for (int i = 0; i < conditions_.size(); ++i) {
+                    DB_LOG << "notify_all() BEFORE";
+                    { // Scoped Lock start
+                        std::lock_guard<std::mutex> lock{std::get<1>(conditions_[i])};
+                        std::get<3>(conditions_[i]) = true;
+                    } // Scoped Lock end
+                    std::get<2>(conditions_[i]).notify_all();
+                    DB_LOG << "notify_all() AFTER";
                 }
-                // threads_.setFinishedFlagAll();
                 if (thread_.joinable()) {
                     LOG << " thread_.join() BEFORE";
                     DB_LOG << " thread_.join() BEFORE";
