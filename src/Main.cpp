@@ -19,7 +19,6 @@ const std::map<std::string, std::map<std::string, std::string>> webConfiguration
 
 void testFunc(PapierMache::DbStuff::Connection con, std::string name, std::string message)
 {
-    int i = 5;
     std::vector<std::byte> data;
     for (const char c : message) {
         data.push_back(static_cast<std::byte>(c));
@@ -28,29 +27,30 @@ void testFunc(PapierMache::DbStuff::Connection con, std::string name, std::strin
     con.send(data);
     bool requestResult = con.request();
     if (!requestResult) {
+        LOG << name << "error";
         throw std::runtime_error{name + ": request() failed"};
     }
     if (requestResult) {
-        std::cout << name << ": wait() BEFORE" << std::endl;
+        LOG << name << ": wait() BEFORE";
         int waitResult = con.wait();
-        DEBUG_LOG << name << ": wait() AFTER";
+        LOG << name << ": wait() AFTER";
         if (waitResult == 0) {
             con.receive(data);
 
             for (const auto b : data) {
                 oss << static_cast<char>(b);
             }
-            DEBUG_LOG << name << ": " << con.id() << " " << oss.str();
+            LOG << name << ": " << con.id() << " " << oss.str();
         }
         else if (waitResult == -1) {
             // リトライ
-            DEBUG_LOG << name << ": wait() failed first";
+            LOG << name << ": wait() failed first";
             if (con.wait() == 0) {
                 con.receive(data);
                 for (const auto b : data) {
                     oss << static_cast<char>(b);
                 }
-                DEBUG_LOG << name << ": " << con.id() << " " << oss.str();
+                LOG << name << ": " << con.id() << " " << oss.str();
             }
             else {
                 throw std::runtime_error{name + ": wait() failed twice."};
@@ -62,34 +62,8 @@ void testFunc(PapierMache::DbStuff::Connection con, std::string name, std::strin
 int main()
 {
     try {
-        {
-            PapierMache::DbStuff::Database db{};
 
-            db.start();
-            db.start();
-            db.start();
-            db.start();
-
-            // std::this_thread::sleep_for(std::chrono::seconds(3));
-
-            PapierMache::DbStuff::Connection con = db.getConnection();
-            testFunc(con, "con1", "PLEASE:TRANSACTION");
-            // // testFunc(con, "con1", "PLEASE:INSERT");
-            // //  con.close();
-
-            PapierMache::DbStuff::Connection con2 = db.getConnection();
-            testFunc(con2, "con2", "PLEASE:UPDATE");
-            // // con2.close();
-
-            PapierMache::DbStuff::Connection con3 = db.getConnection();
-            testFunc(con3, "con3", "PLEASE:TRANSACTION");
-            testFunc(con3, "con3", "PLEASE:TRANSACTION");
-            testFunc(con3, "con3", "PLEASE:DELETE");
-            // con3.close();
-        }
-
-        DEBUG_LOG << "------------------------------";
-
+        LOG << "application start.";
         WEB_LOG << "web configuration is";
         WEB_LOG << "webServer PORT: " << PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT");
         WEB_LOG << "webServer MAX_SOCKETS: " << PapierMache::getValue<int>(webConfiguration, "webServer", "MAX_SOCKETS");
@@ -99,14 +73,42 @@ int main()
 
         PapierMache::WebServer server{PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT"),
                                       PapierMache::getValue<int>(webConfiguration, "webServer", "MAX_SOCKETS")};
-        WEB_LOG << "server initialization start.";
+        LOG << "server initialization start.";
         if (server.initialize() != 0) {
-            WEB_LOG << "server initialization failed.";
+            LOG << "server initialization failed.";
             return 1;
         }
-        WEB_LOG << "server initialization end.";
+        LOG << "server initialization end.";
+
+        LOG << "database initialization start.";
+        PapierMache::DbStuff::Database db{};
+        db.start();
+        LOG << "database initialization end.";
+
+        // 以下簡単なテストコード
+        db.start();
+        db.start();
+        db.start();
+
+        PapierMache::DbStuff::Connection con = db.getConnection();
+        testFunc(con, "con1", "PLEASE:TRANSACTION");
+        // // testFunc(con, "con1", "PLEASE:INSERT");
+        // //  con.close();
+        PapierMache::DbStuff::Connection con2 = db.getConnection();
+        testFunc(con2, "con2", "PLEASE:UPDATE");
+        // // con2.close();
+        PapierMache::DbStuff::Connection con3 = db.getConnection();
+        testFunc(con3, "con3", "PLEASE:TRANSACTION");
+        testFunc(con3, "con3", "PLEASE:TRANSACTION");
+        testFunc(con3, "con3", "PLEASE:DELETE");
+        // con3.close();
+        // テストコードここまで
+
+        LOG << "------------------------------";
+
+        // TODO: 実装が進んだらWebServerにdbの参照をセットしてから開始する
         if (server.start() != 0) {
-            WEB_LOG << "server start failed.";
+            LOG << "server start failed.";
             return 1;
         }
         char quit = ' ';
@@ -118,10 +120,10 @@ int main()
         return 0;
     }
     catch (std::exception &e) {
-        CATCH_ALL_EXCEPTIONS(DEBUG_LOG << e.what();)
+        CATCH_ALL_EXCEPTIONS(LOG << e.what();)
     }
     catch (...) {
-        CATCH_ALL_EXCEPTIONS(DEBUG_LOG << "unexpected error or SEH exception.";)
+        CATCH_ALL_EXCEPTIONS(LOG << "unexpected error or SEH exception.";)
     }
     return 1;
 }

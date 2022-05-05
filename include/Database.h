@@ -33,8 +33,7 @@ namespace PapierMache::DbStuff {
     public:
         ~Connection()
         {
-            // DB_LOG << " ~Connection()";
-            //   noop
+            DEBUG_LOG << " ~Connection()";
         }
 
         void close()
@@ -91,32 +90,28 @@ namespace PapierMache::DbStuff {
               tableId_{0},
               isRequiredConnection_{false},
               isStarted_{false},
-              toBeStoped_{false}
+              toBeStopped_{false}
         {
         }
         ~Database()
         {
             CATCH_ALL_EXCEPTIONS({
-                DB_LOG << " ~Database()";
-                DEBUG_LOG << "~Database()";
-                toBeStoped_.store(true);
+                DB_LOG << "~Database()";
+                toBeStopped_.store(true);
+                DB_LOG << "~Database(): child threads notify_all() BEFORE";
                 for (int i = 0; i < conditions_.size(); ++i) {
-                    DB_LOG << "notify_all() BEFORE";
                     { // Scoped Lock start
                         std::lock_guard<std::mutex> lock{std::get<1>(conditions_[i])};
                         std::get<3>(conditions_[i]) = true;
                     } // Scoped Lock end
                     std::get<2>(conditions_[i]).notify_all();
-                    DB_LOG << "notify_all() AFTER";
                 }
+                DB_LOG << "~Database(): child threads notify_all() AFTER";
                 if (thread_.joinable()) {
-                    DEBUG_LOG << " thread_.join() BEFORE";
-                    DB_LOG << " thread_.join() BEFORE";
+                    DB_LOG << "~Database(): thread_.join() BEFORE";
                     thread_.join();
                 }
-
-                DEBUG_LOG << " thread_.join() AFTER";
-                DB_LOG << " thread_.join() AFTER";
+                DB_LOG << "~Database(): thread_.join() AFTER";
             })
         }
 
@@ -129,14 +124,14 @@ namespace PapierMache::DbStuff {
             thread_ = std::thread{[this] {
                 try {
                     startService();
-                    threads_.setFinishedFlagAll();
-                    DEBUG_LOG << "Database service is stop.";
+                    DB_LOG << "Database::start(): Database service is stop.";
                 }
                 catch (std::exception &e) {
-                    CATCH_ALL_EXCEPTIONS(DB_LOG << e.what();)
+                    CATCH_ALL_EXCEPTIONS(LOG << "Database::start(): " << e.what();)
                 }
                 catch (...) {
-                    CATCH_ALL_EXCEPTIONS(DB_LOG << "unexpected error or SEH exception.";)
+                    CATCH_ALL_EXCEPTIONS(LOG << "Database::start(): "
+                                             << "unexpected error or SEH exception.";)
                 }
             }};
             isStarted_ = true;
@@ -178,7 +173,7 @@ namespace PapierMache::DbStuff {
         bool getData(const std::string connectionId, std::vector<std::byte> &out)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            DB_LOG << "connectionId: " << connectionId << " getData";
+            DEBUG_LOG << "connectionId: " << connectionId << " getData";
             DataStream ds;
             swap(connectionId, ds);
             ds.swap(out);
@@ -188,7 +183,7 @@ namespace PapierMache::DbStuff {
         bool setData(const std::string connectionId, const std::vector<std::byte> &data)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            DB_LOG << "connectionId: " << connectionId << " setData";
+            DEBUG_LOG << "connectionId: " << connectionId << " setData";
             return swap(connectionId, data);
         }
 
@@ -214,26 +209,24 @@ namespace PapierMache::DbStuff {
                 for (i = 0; i < conditions_.size(); ++i) {
                     const SessionCondition &sc = conditions_.at(i);
                     if (std::get<0>(sc) == connectionId) {
-                        DB_LOG << "------------------------------wait 1.";
-                        DEBUG_LOG << "wait " << connectionId;
+                        DEBUG_LOG << connectionId << " ------------------------------wait 1.";
                         break;
                     }
                 }
             }
             if (i == conditions_.size()) {
-                DEBUG_LOG << "-------------------------bugbug";
                 DEBUG_LOG << "Session for connection id:" << connectionId << " is not found.";
                 return -1;
             }
-            DB_LOG << "------------------------------wait 2.";
+            DEBUG_LOG << connectionId << " ------------------------------wait 2.";
             std::unique_lock<std::mutex> lock{std::get<1>(conditions_.at(i))};
             if (std::get<3>(conditions_.at(i))) {
-                DB_LOG << "------------------------------wait 3.";
+                DEBUG_LOG << connectionId << " ------------------------------wait 3.";
                 std::get<2>(conditions_.at(i)).wait(lock, [&refB = std::get<3>(conditions_.at(i))] {
                     return refB == false;
                 });
             }
-            DB_LOG << "------------------------------wait 4.";
+            DEBUG_LOG << connectionId << " ------------------------------wait 4.";
             return 0;
         }
 
@@ -257,7 +250,7 @@ namespace PapierMache::DbStuff {
 
             ~Transaction()
             {
-                DB_LOG << " ~Transaction()";
+                DB_LOG << " ~Transaction() BEFORE";
                 for (const auto &e : toCommit_) {
                     DB_LOG << e.first;
                     std::ostringstream oss{""};
@@ -268,6 +261,7 @@ namespace PapierMache::DbStuff {
                     }
                     DB_LOG << oss.str();
                 }
+                DB_LOG << " ~Transaction() AFTER";
             }
 
             void commit()
@@ -318,7 +312,6 @@ namespace PapierMache::DbStuff {
             ~Table()
             {
                 DB_LOG << " ~Table()";
-                // noop
             }
 
             bool setTarget(const short rowNo, const short transactionId)
@@ -370,17 +363,17 @@ namespace PapierMache::DbStuff {
         bool swap(const std::string connectionId, const std::vector<std::byte> &data)
         {
             DataStream temp{data};
-            DB_LOG << "connectionId: " << connectionId << " const swap BEFOER";
+            DEBUG_LOG << "connectionId: " << connectionId << " const swap BEFOER";
             dataStreams_.at(connectionId).swap(temp);
-            DB_LOG << "connectionId: " << connectionId << " const swap AFTER";
+            DEBUG_LOG << "connectionId: " << connectionId << " const swap AFTER";
             return true;
         }
 
         bool swap(const std::string connectionId, std::vector<std::byte> &data)
         {
-            DB_LOG << "connectionId: " << connectionId << " swap BEFOER";
+            DEBUG_LOG << "connectionId: " << connectionId << " swap BEFOER";
             dataStreams_.at(connectionId).swap(data);
-            DB_LOG << "connectionId: " << connectionId << " swap AFTER";
+            DEBUG_LOG << "connectionId: " << connectionId << " swap AFTER";
             return true;
         }
 
@@ -408,11 +401,11 @@ namespace PapierMache::DbStuff {
                         std::get<3>(conditions_.at(i)) = b;
                     } // Scoped Lock end
                     std::get<2>(conditions_.at(i)).notify_one();
-                    DEBUG_LOG << connectionId << " notifyImpl: OK" << b;
+                    DB_LOG << connectionId << " notifyImpl: OK" << b;
                     return true;
                 }
             }
-            DEBUG_LOG << connectionId << " notifyImpl: NG" << b;
+            DB_LOG << connectionId << " notifyImpl: NG" << b;
             return false;
         }
 
@@ -475,55 +468,46 @@ namespace PapierMache::DbStuff {
                 }
             }
             if (!reuse) {
-                throw std::runtime_error{"Database::startChildThread() : " + std::string{"number of sessions is upper limits."}};
+                throw std::runtime_error{"Database::startChildThread(): " + std::string{"number of sessions is upper limits."}};
             }
 
             int i = 0;
             for (i = 0; i < conditions_.size(); ++i) {
                 const SessionCondition &sc = conditions_.at(i);
                 if (std::get<0>(sc) == connectionId) {
-                    DB_LOG << "------------------------------wait 1.";
                     break;
                 }
             }
             if (i == conditions_.size()) {
-                throw std::runtime_error{"Database::startChildThread() : " + std::string{"should not reach here."}};
+                throw std::runtime_error{"Database::startChildThread(): " + std::string{"cannot find connection. should not reach here."}};
             }
 
-            DB_LOG << "------------------------------11.";
             std::thread t{[&condition = conditions_.at(i), this] {
                 try {
-                    DB_LOG << "------------------------------12.";
                     std::string id;
                     { // 読み込みロック
                         std::shared_lock<std::shared_mutex> lock(sharedMt_);
                         id = std::get<0>(condition);
                     }
                     while (true) {
-                        // if (threads_.shouldBeStopped(std::this_thread::get_id())) {
-                        //     // TODO: 終了処理
-                        //     DEBUG_LOG << "child thread return.";
-                        //     return;
-                        // }
-                        if (toBeStoped_.load()) {
-                            DEBUG_LOG << "child thread return.";
+                        if (toBeStopped_.load()) {
+                            DB_LOG << "Database::startChildThread(): child thread return.";
                             return;
                         }
                         { // Scoped Lock start
                             std::unique_lock<std::mutex> lock{std::get<1>(condition)};
-                            DB_LOG << "------------------------------13.";
                             if (!std::get<3>(condition)) {
-                                DB_LOG << "------------------------------14.";
+                                DB_LOG << "Database::startChildThread(): fait for request from client.";
                                 std::get<2>(condition).wait(lock, [&refB = std::get<3>(condition)] {
                                     return refB;
                                 });
                             }
                         } // Scoped Lock end
-                        if (toBeStoped_.load()) {
-                            DEBUG_LOG << "child thread return.";
+                        if (toBeStopped_.load()) {
+                            DB_LOG << "Database::startChildThread(): child thread return.";
                             return;
                         }
-                        DEBUG_LOG << "connection id: " << id << " is processing.";
+                        DB_LOG << "Database::startChildThread(): connection id: " << id << " is processing.";
 
                         // TODO: 要求を処理
                         std::vector<std::byte> data;
@@ -575,19 +559,20 @@ namespace PapierMache::DbStuff {
                         }
 
                         addTransactionTarget(id, "tableName", data);
-                        DEBUG_LOG << "LOOP END: " << id;
                         data.push_back(static_cast<std::byte>(' '));
                         data.push_back(static_cast<std::byte>('O'));
                         data.push_back(static_cast<std::byte>('K'));
                         setData(id, std::cref(data));
                         toNotify(id);
+                        DB_LOG << "Database::startChildThread(): notify to id: " << id;
                     }
                 }
                 catch (std::exception &e) {
-                    CATCH_ALL_EXCEPTIONS(DB_LOG << e.what();)
+                    CATCH_ALL_EXCEPTIONS(LOG << "Database::startChildThread: " << e.what();)
                 }
                 catch (...) {
-                    CATCH_ALL_EXCEPTIONS(DB_LOG << "unexpected error or SEH exception.";)
+                    CATCH_ALL_EXCEPTIONS(LOG << "Database::startChildThread: "
+                                             << "unexpected error or SEH exception.";)
                 }
             }};
             return std::move(t);
@@ -600,9 +585,10 @@ namespace PapierMache::DbStuff {
                     std::get<0>(sc) = "";
                     std::get<3>(sc) = false;
                 }
+                ThreadsMap threadsMap_;
                 while (true) {
-                    if (toBeStoped_.load()) {
-                        DB_LOG << "toBeStoped_: " << toBeStoped_.load();
+                    if (toBeStopped_.load()) {
+                        DB_LOG << "Database::startService(): toBeStopped_: " << toBeStopped_.load();
                         return;
                     }
                     std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -624,12 +610,12 @@ namespace PapierMache::DbStuff {
                         std::lock_guard<std::mutex> lock{mt_};
                         t = startChildThread(connectionId);
                     } // Scoped Lock end
-                    threads_.addThread(std::move(t));
-                    threads_.cleanUp();
+                    threadsMap_.addThread(std::move(t));
+                    threadsMap_.cleanUp();
                 }
             }
             catch (std::exception &e) {
-                DB_LOG << e.what();
+                LOG << "Database::startService(): " << e.what();
             }
         }
 
@@ -641,26 +627,24 @@ namespace PapierMache::DbStuff {
         // key: ConnectionのId, value: 送受信データ
         std::map<std::string, DataStream> dataStreams_;
 
+        // クライアントと子スレッドのセッションの状態
+        std::array<SessionCondition, 50> conditions_;
+        // SessionConditionのConnectionのIdを設定する際に用いるミューテックス
+        std::shared_mutex sharedMt_;
+
         // コネクション作成要求がある場合にtrue
         bool isRequiredConnection_;
         // 上記bool用の条件変数
         std::condition_variable cond_;
 
-        // データベースサービスのメインスレッド
-        std::thread thread_;
+        // データベースを終了すべき場合にtrue
+        std::atomic_bool toBeStopped_;
+
         // サービスが開始していればtrue
         bool isStarted_;
         std::mutex mt_;
-
-        // クライアントと子スレッドのセッションの状態
-        std::array<SessionCondition, 50> conditions_;
-        ThreadsMap threads_;
-
-        // SessionConditionのConnectionのIdを設定する際に用いるミューテックス
-        std::shared_mutex sharedMt_;
-
-        // データベースを終了すべき場合にtrue
-        std::atomic_bool toBeStoped_;
+        // データベースサービスのメインスレッド
+        std::thread thread_;
     };
 
     // Connection

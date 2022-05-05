@@ -24,17 +24,16 @@ namespace PapierMache {
         }
         ~ThreadsMap(){
             CATCH_ALL_EXCEPTIONS({
-                DEBUG_LOG << "~ThreadsMap() BEFORE";
-                DEBUG_LOG << threads_.size();
+                LOG << "~ThreadsMap(): BEFORE";
+                LOG << "threads_.size(): " << threads_.size();
                 for (auto &e : threads_) {
                     if (e.second.joinable()) {
-                        DEBUG_LOG << "finishedFlag_: " << finishedFlag_.at(e.first);
-                        DEBUG_LOG << "e.second.join() BEFORE";
+                        LOG << "e.second.join() BEFORE";
                         e.second.join();
-                        DEBUG_LOG << "e.second.join() AFTER";
+                        LOG << "e.second.join() AFTER";
                     }
                 }
-                DEBUG_LOG << "~ThreadsMap() AFTER";
+                LOG << "~ThreadsMap(): AFTER";
             })}
 
         // コピー禁止
@@ -63,26 +62,6 @@ namespace PapierMache {
         {
             std::lock_guard<std::mutex> lock{mt_};
             finishedFlag_.insert_or_assign(id, true);
-        }
-
-        void setFinishedFlagAll()
-        {
-            std::lock_guard<std::mutex> lock{mt_};
-            DEBUG_LOG << "finishedFlag_.size(): " << finishedFlag_.size();
-            for (auto &e : finishedFlag_) {
-                finishedFlag_.at(e.first) = true;
-            }
-        }
-
-        // 引数のスレッドidに既にFinishedFlagが設定されていればtrueを返す
-        bool shouldBeStopped(const std::thread::id id)
-        {
-            std::lock_guard<std::mutex> lock{mt_};
-            if (finishedFlag_.find(id) != finishedFlag_.end()) {
-                DEBUG_LOG << "finishedFlag_.at(id): " << finishedFlag_.at(id);
-                return finishedFlag_.at(id);
-            }
-            return false;
         }
 
         void cleanUp()

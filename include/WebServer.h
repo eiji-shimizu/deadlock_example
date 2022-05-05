@@ -16,12 +16,14 @@
 #include <ws2tcpip.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <exception>
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -109,35 +111,48 @@ namespace PapierMache {
     public:
         SocketManager(int max, int timeout)
             : max_{max},
-              timeout_{timeout}
+              timeout_{timeout},
+              toBeStopped_{false},
+              isStarted_{false}
         {
         }
         SocketManager()
             : max_{10},
-              timeout_{15}
+              timeout_{30},
+              toBeStopped_{false},
+              isStarted_{false}
         {
         }
         ~SocketManager()
         {
-            CATCH_ALL_EXCEPTIONS(
+            CATCH_ALL_EXCEPTIONS({
+                WEB_LOG << "~SocketManager(): thread_.join() BEFORE";
                 if (thread_.joinable()) {
                     thread_.join();
-                })
+                }
+                WEB_LOG << "~SocketManager(): thread_.join() AFTER"; })
         }
 
         void startMonitor()
         {
+            std::lock_guard<std::mutex> lock{mt_};
+            if (isStarted_) {
+                return;
+            }
             thread_ = std::thread{[this] {
                 try {
                     monitor();
+                    WEB_LOG << "SocketManager::startMonitor(): finish.";
                 }
                 catch (std::exception &e) {
-                    CATCH_ALL_EXCEPTIONS(WEB_LOG << e.what();)
+                    CATCH_ALL_EXCEPTIONS(LOG << "SocketManager::startMonitor(): " << e.what();)
                 }
                 catch (...) {
-                    CATCH_ALL_EXCEPTIONS(WEB_LOG << "unexpected error or SEH exception.";)
+                    CATCH_ALL_EXCEPTIONS(LOG << "SocketManager::startMonitor(): "
+                                             << "unexpected error or SEH exception.";)
                 }
             }};
+            isStarted_ = true;
         }
 
         bool addSocket(const SOCKET s)
@@ -216,6 +231,19 @@ namespace PapierMache {
             overCapacity_.push_back({s, SocketStatus::TO_CLOSE});
         };
 
+        void closeAll()
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            for (SocketHolder &sh : sockets_) {
+                sh.shutDownAndClose();
+            }
+        }
+
+        void setStopped()
+        {
+            toBeStopped_.store(true);
+        }
+
         // コピー禁止
         SocketManager(const SocketManager &) = delete;
         SocketManager &operator=(const SocketManager &) = delete;
@@ -251,7 +279,7 @@ namespace PapierMache {
                                 sh.shutDownAndClose();
                             }
                             catch (std::exception &e) {
-                                WEB_LOG << e.what();
+                                WEB_LOG << "SocketManager::monitor() std::for_each inner1: " << e.what();
                             }
                         });
 
@@ -260,9 +288,11 @@ namespace PapierMache {
                                                      [](SocketHolder sh) {
                                                          return sh.status() == SocketStatus::TO_CLOSE;
                                                      });
-                        WEB_LOG << "----------1.sockets_.size : " << sockets_.size();
+                        size_t st = sockets_.size();
                         sockets_.erase(result, sockets_.end());
-                        WEB_LOG << "----------2.sockets_.size : " << sockets_.size();
+                        if (st != sockets_.size()) {
+                            WEB_LOG << "sockets erase: " << st << " -> " << sockets_.size();
+                        }
 
                         // 容量オーバーであったソケットがあればクローズ
                         std::for_each(overCapacity_.begin(), overCapacity_.end(), [](SocketHolder sh) {
@@ -270,16 +300,20 @@ namespace PapierMache {
                                 sh.shutDownAndClose();
                             }
                             catch (std::exception &e) {
-                                WEB_LOG << e.what();
+                                WEB_LOG << "SocketManager::monitor() std::for_each inner2: " << e.what();
                             }
                         });
                         overCapacity_.clear();
 
                     } // Scoped Lock end
+                    if (toBeStopped_.load()) {
+                        WEB_LOG << "SocketManager::monitor(): finish.";
+                        return;
+                    }
                 }
             }
             catch (std::exception &e) {
-                WEB_LOG << e.what();
+                LOG << "SocketManager::monitor(): " << e.what();
             }
         }
 
@@ -288,6 +322,10 @@ namespace PapierMache {
         // 管理対象数を超えて生成されたソケットを一時的に格納してほどなくクローズするためのvector
         std::vector<SocketHolder> overCapacity_;
         const int timeout_;
+        // 終了すべき場合にtrue
+        std::atomic_bool toBeStopped_;
+        bool isStarted_;
+
         std::thread thread_;
         std::mutex mt_;
     };
@@ -483,7 +521,8 @@ namespace PapierMache {
             }
             catch (std::exception &e) {
                 refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
-                WEB_LOG << "socket : " << clientSocket << " error : " << e.what();
+                LOG << "Receiver::receive(): "
+                    << "socket : " << clientSocket << " error : " << e.what();
                 throw;
             }
         }
@@ -507,6 +546,8 @@ namespace PapierMache {
             : port_{port},
               maxSockets_{maxSockets},
               listenSocket_{INVALID_SOCKET},
+              pSocketManager_{nullptr},
+              toBeStopped_{false},
               isInitialized_{false},
               isStarted_{false}
         {
@@ -516,6 +557,8 @@ namespace PapierMache {
             : port_{"27015"},
               maxSockets_{10},
               listenSocket_{INVALID_SOCKET},
+              pSocketManager_{nullptr},
+              toBeStopped_{false},
               isInitialized_{false},
               isStarted_{false}
         {
@@ -524,16 +567,26 @@ namespace PapierMache {
         ~WebServer()
         {
             try {
-                WEB_LOG << "listen socket : " << listenSocket_ << " closesocket BEFORE";
+                toBeStopped_.store(true);
+                pSocketManager_->closeAll();
+                pSocketManager_->setStopped();
+                WEB_LOG << "~WebServer(): listen socket : " << listenSocket_ << " closesocket BEFORE";
                 closesocket(listenSocket_);
-                WEB_LOG << "listen socket : " << listenSocket_ << " closesocket AFTER";
+                WEB_LOG << "~WebServer(): listen socket : " << listenSocket_ << " closesocket AFTER";
+                WEB_LOG << "~WebServer(): WSACleanup() BEFORE";
                 WSACleanup();
+                WEB_LOG << "~WebServer(): WSACleanup() AFTER";
+                if (thread_.joinable()) {
+                    WEB_LOG << "~WebServer(): thread_.join() BEFORE";
+                    thread_.join();
+                }
             }
             catch (std::exception &e) {
-                CATCH_ALL_EXCEPTIONS(WEB_LOG << e.what();)
+                CATCH_ALL_EXCEPTIONS(LOG << "~WebServer(): " << e.what();)
             }
             catch (...) {
-                CATCH_ALL_EXCEPTIONS(WEB_LOG << "unexpected error or SEH exception.";)
+                CATCH_ALL_EXCEPTIONS(LOG << "~WebServer(): "
+                                         << "unexpected error or SEH exception.";)
             }
         }
 
@@ -560,6 +613,10 @@ namespace PapierMache {
                 // helloworldのRequestHandlerのセット
                 handlerTree_.addRootNode({getValue<std::string>(webConfiguration, "sites", "ROOT_HELLOWORLD"), nullptr});
                 handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_HELLOWORLD")).addChildNode({"top", std::make_unique<HelloWorldRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
+
+                // SocketManagerの生成
+                pSocketManager_ = std::make_unique<SocketManager>(getValue<int>(webConfiguration, "socketManager", "MAX"),
+                                                                  getValue<int>(webConfiguration, "socketManager", "TIMEOUT"));
 
                 WSADATA wsaData;
                 int iResult;
@@ -614,7 +671,7 @@ namespace PapierMache {
                 return 0;
             }
             catch (std::exception &e) {
-                WEB_LOG << e.what();
+                LOG << "WebServer::initialize() " << e.what();
             }
 
             return 1;
@@ -632,13 +689,14 @@ namespace PapierMache {
             thread_ = std::thread{[this] {
                 try {
                     startServer();
-                    DEBUG_LOG << "web server is stop.";
+                    WEB_LOG << "web server is stop.";
                 }
                 catch (std::exception &e) {
-                    CATCH_ALL_EXCEPTIONS(DB_LOG << e.what();)
+                    CATCH_ALL_EXCEPTIONS(LOG << "WebServer::start(): " << e.what();)
                 }
                 catch (...) {
-                    CATCH_ALL_EXCEPTIONS(DB_LOG << "unexpected error or SEH exception.";)
+                    CATCH_ALL_EXCEPTIONS(LOG << "WebServer::start(): "
+                                             << "unexpected error or SEH exception.";)
                 }
             }};
             isStarted_ = true;
@@ -653,13 +711,20 @@ namespace PapierMache {
                 ThreadsMap threadsMap{getValue<int>(webConfiguration, "threadsMap", "CLEAN_UP_POINT")};
 
                 // SocketManagerを生成して開始する
-                SocketManager socketManager{getValue<int>(webConfiguration, "socketManager", "MAX"),
-                                            getValue<int>(webConfiguration, "socketManager", "TIMEOUT")};
-                socketManager.startMonitor();
+                // SocketManager socketManager{getValue<int>(webConfiguration, "socketManager", "MAX"),
+                //                             getValue<int>(webConfiguration, "socketManager", "TIMEOUT")};
+                pSocketManager_->startMonitor();
                 while (1) {
-
+                    if (toBeStopped_.load()) {
+                        WEB_LOG << "WebServer::startServer(): return";
+                        return;
+                    }
                     WEB_LOG << "accept BEFORE";
                     clientSocket = accept(listenSocket_, NULL, NULL);
+                    if (toBeStopped_.load()) {
+                        WEB_LOG << "WebServer::startServer(): return";
+                        return;
+                    }
                     WEB_LOG << "accept AFTER clientSocket is : " << clientSocket;
 
                     if (clientSocket == INVALID_SOCKET) {
@@ -667,41 +732,47 @@ namespace PapierMache {
                         return;
                     }
 
-                    if (!socketManager.addSocket(clientSocket)) {
+                    if (!(pSocketManager_->addSocket(clientSocket))) {
                         // socketManagerの管理ソケット数が上限であった場合
                         WEB_LOG << "number of sockets is upper limits.";
-                        socketManager.addOverCapacitySocket(clientSocket);
+                        pSocketManager_->addOverCapacitySocket(clientSocket);
                         continue;
                     }
 
                     // 別スレッドで受信処理をする
-                    std::thread t{[this, clientSocket, &socketManager, &threadsMap] {
+                    std::thread t{[this, clientSocket, &refSocketManager = *pSocketManager_, &threadsMap] {
                         try {
-                            Receiver receiver{socketManager, threadsMap, this->handlerTree_};
+                            Receiver receiver{refSocketManager, threadsMap, this->handlerTree_};
                             receiver.receive(clientSocket);
+                            DEBUG_LOG << "WebServer:startServer(): receiver.receive(): end.";
                         }
                         catch (std::exception &e) {
-                            CATCH_ALL_EXCEPTIONS(WEB_LOG << e.what();)
+                            CATCH_ALL_EXCEPTIONS(LOG << "WebServer:startServer(): " << e.what();)
                         }
                         catch (...) {
-                            CATCH_ALL_EXCEPTIONS(WEB_LOG << "unexpected error or SEH exception.";)
+                            CATCH_ALL_EXCEPTIONS(LOG << "WebServer:startServer(): "
+                                                     << "unexpected error or SEH exception.";)
                         }
                     }};
 
                     threadsMap.addThread(std::move(t));
+                    WEB_LOG << "cleanUp BEFOER number of threads is : " << threadsMap.size();
                     threadsMap.cleanUp();
-                    WEB_LOG << "number of threads is : " << threadsMap.size();
+                    WEB_LOG << "cleanUp AFTER number of threads is : " << threadsMap.size();
                 }
             }
             catch (std::exception &e) {
-                WEB_LOG << e.what();
+                LOG << "WebServer::startServer(): " << e.what();
             }
         }
 
         const std::string port_;
         const int maxSockets_;
         SOCKET listenSocket_;
+        std::unique_ptr<SocketManager> pSocketManager_;
         HandlerTree handlerTree_;
+        // webサーバーを終了すべき場合にtrue
+        std::atomic_bool toBeStopped_;
         bool isInitialized_;
         bool isStarted_;
         std::mutex mt_;

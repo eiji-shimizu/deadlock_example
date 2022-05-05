@@ -10,7 +10,6 @@
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
-#include <iostream>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -63,7 +62,7 @@ namespace PapierMache {
         // ただしルート(/)が指定された場合はindex.htmlを返す
         virtual HandlerResult handle(const HttpRequest request)
         {
-            WEB_LOG << "----------------------DefaultHandler::handle";
+            DEBUG_LOG << "----------------------DefaultHandler::handle";
 
             std::filesystem::path resourcePath{getValue<std::string>(webConfiguration, "webServer", "ROOT")};
             if (request.path == "/") {
@@ -122,7 +121,7 @@ namespace PapierMache {
 
         virtual HandlerResult handle(const HttpRequest request)
         {
-            WEB_LOG << "----------------------RootHandler::handle";
+            DEBUG_LOG << "----------------------RootHandler::handle";
             return DefaultHandler::handle(request);
         }
     };
@@ -138,7 +137,7 @@ namespace PapierMache {
 
         virtual HandlerResult handle(const HttpRequest request)
         {
-            WEB_LOG << "----------------------HelloWorldRootHandler::handle";
+            DEBUG_LOG << "----------------------HelloWorldRootHandler::handle";
             return DefaultHandler::handle(request);
         }
     };
@@ -238,7 +237,7 @@ namespace PapierMache {
                                 std::for_each(std::next(relativePath.cbegin(), oss.str().length() + 1), relativePath.cend(), [&childRelativePath](char c) {
                                     childRelativePath << c;
                                 });
-                                WEB_LOG << "childRelativePath: " << childRelativePath.str();
+                                DEBUG_LOG << "childRelativePath: " << childRelativePath.str();
                                 for (auto &e : childNodes_) {
                                     HandlerTreeNode &result = e.second.findNode(childRelativePath.str());
                                     if (&result != &nullObject()) {
