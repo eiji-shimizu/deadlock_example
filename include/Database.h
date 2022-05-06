@@ -4,6 +4,7 @@
 #include "General.h"
 
 #include "Common.h"
+#include "Datafile.h"
 #include "Logger.h"
 #include "ThreadsMap.h"
 #include "UUID.h"
@@ -121,6 +122,11 @@ namespace PapierMache::DbStuff {
             std::lock_guard<std::mutex> lock{mt_};
             if (isStarted_) {
                 return;
+            }
+            // テーブルの情報を読み込む
+            std::map<std::string, std::map<std::string, std::string>> tables{PapierMache::readConfiguration("./database/tables.ini")};
+            for (const auto &e : tables) {
+                datafiles_.emplace_back(e.first, e.second);
             }
             thread_ = std::thread{[this] {
                 try {
@@ -662,6 +668,7 @@ namespace PapierMache::DbStuff {
 
         short transactionId_;
         short tableId_;
+        std::vector<Datafile> datafiles_;
         std::vector<Connection> connectionList_;
         std::vector<Transaction> transactionList_;
         std::vector<Table> tableList_;
@@ -745,12 +752,16 @@ namespace PapierMache::DbStuff {
         // PLEASE:NEWUSER user="userName",password="password"
         // このコネクションにおけるトランザクションを開始する:
         // PLEASE:TRANSACTION
+        // テーブルへのselect ()内が照会する列
+        // PLEASE:SELECT "tableName" (key1="value1",key2="value2"...)
         // テーブルへのinsert ()内が登録内容:
         // PLEASE:INSERT "tableName" (key1="value1",key2="value2"...)
         // テーブルへのupdate 前半の()内が更新内容 後半の()内が更新する列
         // PLEASE:UPDATE "tableName" (key1="value1",key2="value2"...) (key1="value1",key2="value2"...)
         // テーブルへのdelete ()内が削除する列
         // PLEASE:DELETE "tableName" (key1="value1",key2="value2"...)
+        // テーブルへのselect for update ()内がロックする列
+        // PLEASE:SELECT_FOR_UPDATE "tableName" (key1="value1",key2="value2"...)
         // トランザクションをコミットする
         // PLEASE:COMMIT
         // トランザクションをロールバックする
@@ -818,6 +829,6 @@ namespace PapierMache::DbStuff {
         Connection con_;
     };
 
-} // namespace PapierMache
+} // namespace PapierMache::DbStuff
 
 #endif // DEADLOCK_EXAMPLE_DATABASE_INCLUDED

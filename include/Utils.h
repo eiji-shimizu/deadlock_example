@@ -72,6 +72,20 @@ namespace PapierMache {
         return oss.str();
     }
 
+    // システムのローカル日時の文字列を返す
+    // 最大の長さで
+    // 30827:12:31:23:59:59:999
+    // の24文字が返る
+    inline std::string getLocalTimeStr()
+    {
+        SYSTEMTIME stTime;
+        GetLocalTime(&stTime);
+        std::ostringstream oss{""};
+        oss << stTime.wYear << ":" << stTime.wMonth << ":" << stTime.wDay << ":"
+            << stTime.wHour << ":" << stTime.wMinute << ":" << stTime.wSecond << ":" << stTime.wMilliseconds;
+        return oss.str();
+    }
+
     template <typename T>
     inline char *as_bytes(T &i)
     {
