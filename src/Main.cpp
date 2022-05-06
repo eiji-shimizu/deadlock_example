@@ -17,7 +17,7 @@ const std::map<std::string, std::map<std::string, std::string>> webConfiguration
 
 // PapierMache::DbStuff::Database database{};
 
-void testFunc(PapierMache::DbStuff::Connection con, std::string name, std::string message)
+void testFunc0(PapierMache::DbStuff::Connection con, std::string name, std::string message)
 {
     std::vector<std::byte> data;
     for (const char c : message) {
@@ -59,6 +59,18 @@ void testFunc(PapierMache::DbStuff::Connection con, std::string name, std::strin
     }
 }
 
+void testFunc(PapierMache::DbStuff::Connection con, std::string name, std::string query)
+{
+    PapierMache::DbStuff::Driver driver{con};
+    const auto result = driver.sendQuery(query);
+    if (!result.isSucceed) {
+        LOG << result.message;
+    }
+    if (result.isSucceed) {
+        LOG << result.message;
+    }
+}
+
 int main()
 {
     try {
@@ -92,16 +104,16 @@ int main()
 
         PapierMache::DbStuff::Connection con = db.getConnection();
         testFunc(con, "con1", "PLEASE:TRANSACTION");
-        // // testFunc(con, "con1", "PLEASE:INSERT");
-        // //  con.close();
+        con.close();
         PapierMache::DbStuff::Connection con2 = db.getConnection();
         testFunc(con2, "con2", "PLEASE:UPDATE");
-        // // con2.close();
         PapierMache::DbStuff::Connection con3 = db.getConnection();
         testFunc(con3, "con3", "PLEASE:TRANSACTION");
         testFunc(con3, "con3", "PLEASE:TRANSACTION");
         testFunc(con3, "con3", "PLEASE:DELETE");
-        // con3.close();
+        con3.close();
+        con2.close();
+        testFunc(con, "con1", "PLEASE:TRANSACTION");
         // テストコードここまで
 
         LOG << "------------------------------";

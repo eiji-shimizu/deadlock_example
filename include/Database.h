@@ -36,16 +36,15 @@ namespace PapierMache::DbStuff {
             DEBUG_LOG << " ~Connection()";
         }
 
-        void close()
+        Connection &operator=(const Connection &rhs)
         {
-            if (!isClosed()) {
-                std::vector<std::byte> data;
-                std::string closeRequest = "PLEASE:CLOSE";
-                for (const char c : closeRequest) {
-                    data.push_back(static_cast<std::byte>(c));
-                }
-                send(data);
+            if (this == &rhs) {
+                return *this;
             }
+            id_ = rhs.id_;
+            pDb_ = rhs.pDb_;
+            isInUse_ = rhs.isInUse_;
+            return *this;
         }
 
         // 引数のデータを送信する
@@ -56,6 +55,8 @@ namespace PapierMache::DbStuff {
         bool request();
         // 処理結果を待つ
         int wait();
+        // コネクションをクローズする
+        bool close();
         // このコネクションがクローズしていればtrue
         bool isClosed();
 
@@ -64,13 +65,13 @@ namespace PapierMache::DbStuff {
     private:
         Connection(const std::string id, Database &refDb)
             : id_{id},
-              refDb_{refDb},
+              pDb_{&refDb},
               isInUse_{false}
         {
         }
 
-        const std::string id_;
-        Database &refDb_;
+        std::string id_;
+        Database *pDb_;
         bool isInUse_;
     };
 
@@ -228,6 +229,46 @@ namespace PapierMache::DbStuff {
             }
             DEBUG_LOG << connectionId << " ------------------------------wait 4.";
             return 0;
+        }
+
+        bool close(const std::string connectionId)
+        {
+            { // Scoped Lock start
+                std::lock_guard<std::mutex> lock{mt_};
+                auto result = std::remove_if(connectionList_.begin(), connectionList_.end(),
+                                             [connectionId](Connection c) { return c.id() == connectionId; });
+
+                if (result == connectionList_.end()) {
+                    LOG << "close1: " << connectionId;
+                    return false;
+                }
+                connectionList_.erase(result, connectionList_.end());
+                dataStreams_.erase(connectionId);
+            } // Scoped Lock end
+
+            // このコネクションを処理しているスレッドに通知する
+            int i = 0;
+            { // Scoped Lock start
+                // 書き込みロック
+                std::lock_guard<std::shared_mutex> wl(sharedMt_);
+                for (; i < conditions_.size(); ++i) {
+                    if (std::get<0>(conditions_.at(i)) == connectionId) {
+                        std::get<0>(conditions_.at(i)) = "";
+                        break;
+                    }
+                }
+            } // Scoped Lock end
+            if (i == conditions_.size()) {
+                LOG << "close2: " << connectionId;
+                return false;
+            }
+            { // Scoped Lock start
+                std::lock_guard<std::mutex> lock{std::get<1>(conditions_.at(i))};
+                std::get<3>(conditions_.at(i)) = true;
+            } // Scoped Lock end
+            std::get<2>(conditions_.at(i)).notify_one();
+            LOG << "close3: " << connectionId;
+            return true;
         }
 
         bool isClosed(const std::string connectionId)
@@ -490,20 +531,20 @@ namespace PapierMache::DbStuff {
                         id = std::get<0>(condition);
                     }
                     while (true) {
-                        if (toBeStopped_.load()) {
+                        if (toBeStopped_.load() || isClosed(id)) {
                             DB_LOG << "Database::startChildThread(): child thread return.";
                             return;
                         }
                         { // Scoped Lock start
                             std::unique_lock<std::mutex> lock{std::get<1>(condition)};
                             if (!std::get<3>(condition)) {
-                                DB_LOG << "Database::startChildThread(): fait for request from client.";
+                                DB_LOG << "Database::startChildThread(): wait for request from client.";
                                 std::get<2>(condition).wait(lock, [&refB = std::get<3>(condition)] {
                                     return refB;
                                 });
                             }
                         } // Scoped Lock end
-                        if (toBeStopped_.load()) {
+                        if (toBeStopped_.load() || isClosed(id)) {
                             DB_LOG << "Database::startChildThread(): child thread return.";
                             return;
                         }
@@ -651,63 +692,126 @@ namespace PapierMache::DbStuff {
     inline bool Connection::send(const std::vector<std::byte> &data)
     {
         // クライアントからの情報送信はDB内部の送受信用バッファに情報を入れる
-        return refDb_.setData(id_, data);
+        return pDb_->setData(id_, data);
     }
 
     inline bool Connection::receive(std::vector<std::byte> &out)
     {
         // クライアントはDB内部の送受信用バッファから情報を取り出すことで受信する
-        return refDb_.getData(id_, out);
+        return pDb_->getData(id_, out);
     }
 
     inline bool Connection::request()
     {
-        return refDb_.toNotify(id_, true);
+        return pDb_->toNotify(id_, true);
     }
 
     inline int Connection::wait()
     {
-        return refDb_.wait(id_);
+        return pDb_->wait(id_);
+    }
+
+    inline bool Connection::close()
+    {
+        return pDb_->close(id_);
     }
 
     inline bool Connection::isClosed()
     {
-        return refDb_.isClosed(id_);
+        return pDb_->isClosed(id_);
     }
 
-    class DbDriver {
+    // データベースドライバー
+    class Driver {
     public:
-        DbDriver(const Connection con)
+        struct Result {
+            const bool isSucceed;
+            std::map<std::string, std::string> rows;
+            const std::string message;
+
+            Result(const bool b, std::map<std::string, std::string> m, const std::string s)
+                : isSucceed{b}, rows{m}, message{s}
+            {
+            }
+        };
+
+        Driver(const Connection con)
             : con_{con}
         {
         }
 
-        bool sendQuery(std::string query)
+        // 引数のクエリをコネクションを通じてデータベースに送る
+        // ユーザーの新規作成:
+        // PLEASE:NEWUSER user="userName",password="password"
+        // このコネクションにおけるトランザクションを開始する:
+        // PLEASE:TRANSACTION
+        // テーブルへのinsert ()内が登録内容:
+        // PLEASE:INSERT "tableName" (key1="value1",key2="value2"...)
+        // テーブルへのupdate 前半の()内が更新内容 後半の()内が更新する列
+        // PLEASE:UPDATE "tableName" (key1="value1",key2="value2"...) (key1="value1",key2="value2"...)
+        // テーブルへのdelete ()内が削除する列
+        // PLEASE:DELETE "tableName" (key1="value1",key2="value2"...)
+        // トランザクションをコミットする
+        // PLEASE:COMMIT
+        // トランザクションをロールバックする
+        // PLEASE:ROLLBACK
+        Result sendQuery(std::string query)
         {
-            std::vector<std::byte> data;
-            for (const char c : query) {
-                data.push_back(static_cast<std::byte>(c));
+            std::string error = "";
+            std::map<std::string, std::string> rows;
+            try {
+                std::vector<std::byte> data;
+                for (const char c : query) {
+                    data.push_back(static_cast<std::byte>(c));
+                }
+                // クエリ送信
+                error = "send failed";
+                if (!con_.send(data)) {
+                    return Result{false, rows, error};
+                }
+                // データベースに送信したクエリの処理のリクエストを送る
+                // リトライ含め3回
+                error = "request failed";
+                bool requestResult = con_.request();
+                if (!requestResult) {
+                    requestResult = con_.request();
+                    if (!requestResult) {
+                        requestResult = con_.request();
+                    }
+                }
+                if (!requestResult) {
+                    return Result{false, rows, error};
+                }
+                // データベースの処理を待つ
+                error = "wait failed";
+                int waitResult = con_.wait();
+                if (waitResult == -1) {
+                    // このエラー時のみリトライする
+                    waitResult = con_.wait();
+                }
+                // エラーがあった場合
+                if (waitResult != 0) {
+                    return Result{false, rows, error};
+                }
+                // 結果受信
+                error = "receive failed";
+                if (!con_.receive(data)) {
+                    return Result{false, rows, error};
+                }
+                error = "";
+                std::ostringstream oss{""};
+                for (const std::byte b : data) {
+                    oss << static_cast<char>(b);
+                }
+                // TODO: 受信データをパースする
+                return Result{true, rows, oss.str()};
             }
-            return con_.send(data);
-        }
-
-        std::map<std::string, std::string> sendQuery(std::string query, bool &result)
-        {
-            std::map<std::string, std::string> tableRows;
-            std::vector<std::byte> data;
-            for (const char c : query) {
-                data.push_back(static_cast<std::byte>(c));
+            catch (std::exception &e) {
+                if (error == "") {
+                    throw;
+                }
+                return Result{false, rows, error + " : " + e.what()};
             }
-            if (!con_.send(data)) {
-                result = false;
-                return tableRows;
-            }
-            if (!con_.receive(data)) {
-                result = false;
-                return tableRows;
-            }
-            // TODO: 受信データをパースする
-            return tableRows;
         }
 
     private:
