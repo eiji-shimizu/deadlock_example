@@ -7,6 +7,7 @@
 #include "Logger.h"
 
 #include <windows.h>
+#include <winnt.h>
 
 #include <exception>
 #include <filesystem>
@@ -24,6 +25,7 @@ namespace PapierMache::DbStuff {
     public:
         Datafile(const std::string dataFileName, const std::map<std::string, std::string> &tableInfo)
             : tableName_{dataFileName},
+              temp_{},
               pMt_{new std::mutex}
         {
             const std::string dataFilePath = "./database/data/" + dataFileName;
@@ -107,6 +109,7 @@ namespace PapierMache::DbStuff {
         // ムーブ代入
         Datafile &operator=(Datafile &&rhs)
         {
+            std::lock_guard<std::mutex> lock{*pMt_};
             if (this == &rhs) {
                 return *this;
             }
@@ -116,6 +119,32 @@ namespace PapierMache::DbStuff {
             hFile_ = rhs.hFile_;
             rhs.hFile_ = INVALID_HANDLE_VALUE;
             return *this;
+        }
+
+        bool insert(const short transactionId, const std::vector<std::byte> &data)
+        {
+            std::lock_guard<std::mutex> lock{*pMt_};
+            temp_.emplace_back(ULONG_MAX, transactionId, data);
+            return true;
+        }
+
+        bool commit(const short transactionId)
+        {
+            std::lock_guard<std::mutex> lock{*pMt_};
+            for (TemporaryData &td : temp_) {
+                if (td.transactionId() == transactionId) {
+                    DB_LOG << "--------------------commit1.";
+                    td.setToCommit();
+                }
+            }
+            write();
+            DB_LOG << "--------------------commit2.";
+            return true;
+        }
+
+        const std::string tableName() const
+        {
+            return tableName_;
         }
 
         const std::string columnType(const std::string colName) const
@@ -133,7 +162,7 @@ namespace PapierMache::DbStuff {
             return tableInfo_.columnSizeTotal();
         }
 
-        bool isPermitted(const std::string operation, const std::string user)
+        bool isPermitted(const std::string operation, const std::string user) const
         {
             return tableInfo_.isPermitted(operation, user);
         }
@@ -196,7 +225,7 @@ namespace PapierMache::DbStuff {
                 return total;
             }
 
-            bool isPermitted(const std::string operation, const std::string user)
+            bool isPermitted(const std::string operation, const std::string user) const
             {
                 const auto &it = permissions_.find(operation);
                 if (it != permissions_.end()) {
@@ -216,8 +245,83 @@ namespace PapierMache::DbStuff {
             std::map<std::string, std::vector<std::string>> permissions_;
         };
 
+        class TemporaryData {
+        public:
+            TemporaryData(const DWORD position,
+                          const short transactionId,
+                          const std::vector<std::byte> &v)
+                : position_{position},
+                  transactionId_{transactionId},
+                  v_{v},
+                  toCommit_{false}
+            {
+            }
+
+            void setToCommit()
+            {
+                toCommit_ = true;
+            }
+
+            const DWORD position() const { return position_; }
+            const short transactionId() const { return transactionId_; }
+            const std::vector<std::byte> v() const { return v_; }
+            const bool toCommit() const { return toCommit_; }
+
+        private:
+            // 変更対象行のファイルポインタの位置(ファイル先頭から数える)
+            const DWORD position_;
+            // トランザクションID
+            const short transactionId_;
+            // 変更用データ
+            const std::vector<std::byte> v_;
+            // コミットする場合はtrue
+            bool toCommit_;
+        };
+
+        void write()
+        {
+            std::vector<size_t> indexs;
+            DWORD dwBytesWritten = 0;
+            BOOL bErrorFlag = FALSE;
+            for (TemporaryData &td : temp_) {
+                if (td.toCommit()) {
+                    // TODO: データのパースが必要
+                    std::vector<char> data;
+                    for (const std::byte b : td.v()) {
+                        data.push_back(static_cast<char>(b));
+                    }
+                    DB_LOG << "----------------------------write " << data.size();
+                    if (td.position() == ULONG_MAX) {
+                        bErrorFlag = WriteFile(
+                            hFile_,          // open file handle
+                            data.data(),     // start of data to write
+                            data.size(),     // number of bytes to write
+                            &dwBytesWritten, // number of bytes that were written
+                            NULL);           // no overlapped structure
+
+                        if (FALSE == bErrorFlag) {
+                            throw std::runtime_error{"Terminal failure: Unable to write to file."};
+                        }
+                        else {
+                            if (dwBytesWritten != data.size()) {
+                                // This is an error because a synchronous write that results in
+                                // success (WriteFile returns TRUE) should write all data as
+                                // requested. This would not necessarily be the case for
+                                // asynchronous writes.
+                                throw std::runtime_error{"Error: dwBytesWritten != dwBytesToWrite"};
+                            }
+                            else {
+                                DB_LOG << "Datafile::write(): succeed";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         std::string tableName_;
         TableInfo tableInfo_;
+        std::vector<TemporaryData> temp_;
         std::unique_ptr<std::mutex> pMt_;
         HANDLE hFile_;
     };

@@ -128,6 +128,15 @@ namespace PapierMache::DbStuff {
             for (const auto &e : tables) {
                 datafiles_.emplace_back(e.first, e.second);
             }
+            std::vector<std::byte> out;
+            for (Datafile &f : datafiles_) {
+                if (f.tableName() == "user") {
+                    toBytesDataFromString("testtest bug iranai", out);
+                    f.insert(5, out);
+                    f.commit(5);
+                }
+            }
+
             thread_ = std::thread{[this] {
                 try {
                     startService();
