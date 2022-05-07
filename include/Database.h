@@ -141,6 +141,19 @@ namespace PapierMache::DbStuff {
                     f.insert(5, out);
                     out.clear();
                     f.commit(5);
+                    toBytesDataFromString("USER_NAME=\"花子\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
+                    f.insert(6, out);
+                    out.clear();
+                    toBytesDataFromString("USER_NAME=\"ichiro\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
+                    f.insert(6, out);
+                    out.clear();
+                    f.commit(6);
+                    std::vector<std::byte> where;
+                    toBytesDataFromString("USER_NAME=\"testuser\"", where);
+                    toBytesDataFromString("USER_NAME=\"testuser2\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
+                    f.update(5, out, where);
+                    where.clear();
+                    out.clear();
                 }
             }
 

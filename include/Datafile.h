@@ -14,6 +14,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -28,7 +29,8 @@ namespace PapierMache::DbStuff {
         Datafile(const std::string dataFileName, const std::map<std::string, std::string> &tableInfo)
             : tableName_{dataFileName},
               temp_{},
-              pMt_{new std::mutex}
+              pMt_{new std::mutex},
+              pSharedMt_{new std::shared_mutex}
         {
             hFile_ = createHandle(dataFileName);
             std::vector<std::tuple<std::string, std::string, int, int>> vec;
@@ -155,26 +157,93 @@ namespace PapierMache::DbStuff {
         bool insert(const TRANSACTION_ID transactionId, const std::vector<std::byte> &data)
         {
             std::map<std::string, std::vector<std::byte>> m = parseKeyValueVector(data);
-            DB_LOG << "insert-------------";
-            for (const auto &e : m) {
-                DB_LOG << e.first;
-            }
             std::lock_guard<std::mutex> lock{*pMt_};
             temp_.emplace_back(-1LL, transactionId, m);
             return true;
         }
+
+        bool update(const TRANSACTION_ID transactionId,
+                    const std::vector<std::byte> &data,
+                    const std::vector<std::byte> &where)
+        {
+            std::map<std::string, std::vector<std::byte>> mData = parseKeyValueVector(data);
+            std::map<std::string, std::vector<std::byte>> mWhere = parseKeyValueVector(where);
+            HANDLE h;
+            BOOL bErrorFlag = FALSE;
+            { // Scoped Lock start
+                std::lock_guard<std::mutex> lock{*pMt_};
+                h = getHandle(transactionId);
+                LARGE_INTEGER li;
+                li.QuadPart = 0LL;
+                bErrorFlag = SetFilePointerEx(getHandle(transactionId), li, NULL, FILE_BEGIN);
+                if (FALSE == bErrorFlag) {
+                    throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
+                }
+            } // Scoped Lock end
+            std::vector<LONGLONG> position;
+            { // Scoped Lock start
+                // 書き込みロック
+                std::lock_guard<std::shared_mutex> lock{*pSharedMt_};
+                BOOL bResult = true;
+                DWORD dwBytesRead = 1;
+                while (bResult && dwBytesRead != 0) {
+                    bResult = false;
+                    dwBytesRead = 0;
+                    std::vector<std::byte> buffer;
+                    buffer.resize(2);
+                    bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
+                    if (FALSE == bResult) {
+                        throw std::runtime_error{"Datafile::update(): ReadFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                    }
+                    else {
+                        if (dwBytesRead == 0) {
+                            DB_LOG << "------------------EOF";
+                        }
+                        else if (dwBytesRead != buffer.size()) {
+                            throw std::runtime_error{"Datafile::write(): ReadFile() : Error: number of bytes to read != number of bytes that were read"};
+                        }
+                    }
+                    const short s = toShort(buffer);
+                    DB_LOG << "s: " << s;
+                    DB_LOG << "transactionId: " << transactionId;
+                    if (s >= 0 && s != transactionId) {
+                        // TODO: この場合は別トランザクションがロックしているので待たなければならない
+                    }
+                    else {
+                        LARGE_INTEGER li;
+                        li.QuadPart = -2;
+                        LARGE_INTEGER save;
+                        bErrorFlag = SetFilePointerEx(getHandle(transactionId), li, &save, FILE_CURRENT);
+                        if (FALSE == bErrorFlag) {
+                            throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
+                        }
+                        // 制御構造も含めた行頭位置を退避
+                        save.QuadPart = add(tableInfo_.columnSizeTotal(), tableInfo_.controlDataSize());
+
+                        // 再びデータの先頭に移動
+                        li.QuadPart = 2;
+                        bErrorFlag = SetFilePointerEx(getHandle(transactionId), li, NULL, FILE_CURRENT);
+                        if (FALSE == bErrorFlag) {
+                            throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
+                        }
+                        // TODO: 条件に合致する行であればトランザクションIDを書き込む
+
+                        // TemporaryDataにこの行のポジションを設定して追加する
+                    }
+                }
+            } // Scoped Lock end
+            return true;
+        };
 
         bool commit(const TRANSACTION_ID transactionId)
         {
             std::lock_guard<std::mutex> lock{*pMt_};
             for (TemporaryData &td : temp_) {
                 if (td.transactionId() == transactionId) {
-                    DB_LOG << "--------------------commit1.";
                     td.setToCommit();
                 }
             }
             write();
-            DB_LOG << "--------------------commit2.";
             return true;
         }
 
@@ -329,9 +398,9 @@ namespace PapierMache::DbStuff {
             {
             }
 
-            void setToCommit()
+            void setToCommit(bool b = true)
             {
-                toCommit_ = true;
+                toCommit_ = b;
             }
 
             const LONGLONG position() const { return position_; }
@@ -399,11 +468,6 @@ namespace PapierMache::DbStuff {
 
         std::map<std::string, std::vector<std::byte>> parseKeyValueVector(const std::vector<std::byte> &vec)
         {
-            std::ostringstream test{""};
-            for (const std::byte b : vec) {
-                test << static_cast<char>(b);
-            }
-            DB_LOG << test.str();
             // 中身が
             // key1="value1",key2="value2"...
             // である前提でパースしてマップにして返す
@@ -511,14 +575,16 @@ namespace PapierMache::DbStuff {
                     //     data.push_back(static_cast<char>(b));
                     // }
                     if (td.position() == -1LL) {
-                        DB_LOG << "----------------------------write here1";
                         // 追記なので最初にシーケンスをファイル末尾に移動する
-                        bErrorFlag = SetFilePointerEx(getHandle(td.transactionId()), LARGE_INTEGER{0LL}, NULL, FILE_END);
+                        LARGE_INTEGER li;
+                        li.QuadPart = 0LL;
+                        bErrorFlag = SetFilePointerEx(getHandle(td.transactionId()), li, NULL, FILE_END);
                         if (FALSE == bErrorFlag) {
                             throw std::runtime_error{"Datafile::write(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
                         }
                         // コントロールデータの作成
-                        ControlData cd{td.transactionId(), 0};
+                        DB_LOG << "-----------------------------" << td.transactionId();
+                        ControlData cd{-1, 0};
                         bErrorFlag = WriteFile(getHandle(td.transactionId()), // open file handle
                                                &cd,                           // start of data to write
                                                sizeof(cd),                    // number of bytes to write
@@ -543,10 +609,10 @@ namespace PapierMache::DbStuff {
                             }
                         }
                         LARGE_INTEGER save;
-                        SetFilePointerEx(getHandle(td.transactionId()), LARGE_INTEGER{0LL}, &save, FILE_CURRENT);
+                        li.QuadPart = 0LL;
+                        SetFilePointerEx(getHandle(td.transactionId()), li, &save, FILE_CURRENT);
                         // const LONGLONG startPosition = save.QuadPart;
                         for (const auto &e : td.m()) {
-                            DB_LOG << "----------------------------write here2";
                             DB_LOG << e.first;
                             LARGE_INTEGER position;
                             position.QuadPart = add(save.QuadPart, tableInfo_.offset(e.first));
@@ -559,7 +625,6 @@ namespace PapierMache::DbStuff {
                                                    &dwBytesWritten,               // number of bytes that were written
                                                    NULL);                         // no overlapped structure
 
-                            DB_LOG << "----------------------------write here3";
                             if (FALSE == bErrorFlag) {
                                 throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
                             }
@@ -578,14 +643,42 @@ namespace PapierMache::DbStuff {
                             }
                         }
                     }
+                    else {
+                        // 更新または削除の場合
+                    }
+
+                    td.setToCommit(false);
                 }
             }
+        }
+
+        bool isLittleEndian() const
+        {
+            const int bom = 1;
+            return *reinterpret_cast<const char *>(&bom) == 1;
+        }
+
+        short toShort(const std::vector<std::byte> &bytes) const
+        {
+            if (bytes.size() != 2) {
+                throw std::runtime_error{"cannot parse to short from the bytes."};
+            }
+            short array[2];
+            for (int i = 0; i < 2; ++i) {
+                // DB_LOG << "bytes.at(i): " << std::hex << static_cast<unsigned char>(bytes.at(i));
+                array[i] = static_cast<unsigned char>(bytes.at(i));
+            }
+            if (isLittleEndian()) {
+                return (array[1] << 8) | array[0];
+            }
+            return (array[0] << 8) | array[1];
         }
 
         std::string tableName_;
         TableInfo tableInfo_;
         std::vector<TemporaryData> temp_;
         std::unique_ptr<std::mutex> pMt_;
+        std::unique_ptr<std::shared_mutex> pSharedMt_;
         HANDLE hFile_;
         // key: トランザクションID, value: トランザクションごとのファイルハンドル
         std::map<short, HANDLE> handles_;
