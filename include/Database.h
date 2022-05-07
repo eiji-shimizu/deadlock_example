@@ -131,8 +131,15 @@ namespace PapierMache::DbStuff {
             std::vector<std::byte> out;
             for (Datafile &f : datafiles_) {
                 if (f.tableName() == "user") {
-                    toBytesDataFromString("testtest bug iranai", out);
+                    toBytesDataFromString("USER_NAME=\"testuser\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
                     f.insert(5, out);
+                    out.clear();
+                    toBytesDataFromString("USER_NAME=\"testuser01234567\",PASSWORD=\"@012345678901234567890123456789_\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
+                    f.insert(5, out);
+                    out.clear();
+                    toBytesDataFromString("USER_NAME=\"太郎\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
+                    f.insert(5, out);
+                    out.clear();
                     f.commit(5);
                 }
             }
@@ -370,7 +377,7 @@ namespace PapierMache::DbStuff {
                 DB_LOG << " ~Table()";
             }
 
-            bool setTarget(const short rowNo, const short transactionId)
+            bool setTarget(const short rowNo, const TRANSACTION_ID transactionId)
             {
                 // std::lock_guard<std::mutex> lock{mt_};
                 if (isTarget_.find(rowNo) != isTarget_.end()) {
@@ -384,7 +391,7 @@ namespace PapierMache::DbStuff {
                 return true;
             }
 
-            bool clearTarget(const short rowNo, const short transactionId)
+            bool clearTarget(const short rowNo, const TRANSACTION_ID transactionId)
             {
                 // std::lock_guard<std::mutex> lock{mt_};
                 if (isTarget_.find(rowNo) != isTarget_.end()) {
@@ -476,7 +483,7 @@ namespace PapierMache::DbStuff {
         void addTransactionTarget(const std::string connectionId, const std::string tableName, const std::vector<std::byte> &bytes)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            short transactionId = -1;
+            TRANSACTION_ID transactionId = -1;
             for (Transaction &t : transactionList_) {
                 if (t.connectionId() == connectionId) {
                     transactionId = t.id();
@@ -675,7 +682,7 @@ namespace PapierMache::DbStuff {
             }
         }
 
-        short transactionId_;
+        TRANSACTION_ID transactionId_;
         short tableId_;
         std::vector<Datafile> datafiles_;
         std::vector<Connection> connectionList_;
