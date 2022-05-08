@@ -74,7 +74,7 @@ namespace PapierMache {
 
     // システムのローカル日時の文字列を返す
     // 最大の長さで
-    // 30827:12:31:23:59:59:999
+    // 30827-12-31 23:59:59.999
     // の24文字が返る
     inline std::string getLocalTimeStr()
     {

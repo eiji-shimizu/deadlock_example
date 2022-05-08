@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -32,7 +33,6 @@ namespace PapierMache::DbStuff {
               temp_{},
               pMt_{new std::mutex},
               pControlMt_{new std::mutex},
-              isUpdating_{false},
               pCond_{new std::condition_variable},
               pDataSharedMt_{new std::shared_mutex}
         {
@@ -132,7 +132,6 @@ namespace PapierMache::DbStuff {
               tableInfo_{std::move(rhs.tableInfo_)},
               pMt_{std::move(rhs.pMt_)},
               pControlMt_{std::move(rhs.pControlMt_)},
-              isUpdating_{rhs.isUpdating_},
               pCond_{std::move(rhs.pCond_)},
               pDataSharedMt_{std::move(rhs.pDataSharedMt_)},
               hFile_{rhs.hFile_},
@@ -154,7 +153,6 @@ namespace PapierMache::DbStuff {
             tableInfo_ = std::move(rhs.tableInfo_);
             pMt_ = std::move(rhs.pMt_);
             pControlMt_ = std::move(rhs.pControlMt_);
-            isUpdating_ = rhs.isUpdating_;
             pCond_ = std::move(rhs.pCond_);
             pDataSharedMt_ = std::move(rhs.pDataSharedMt_);
             hFile_ = rhs.hFile_;
@@ -186,6 +184,7 @@ namespace PapierMache::DbStuff {
                 std::lock_guard<std::mutex> lock{*pMt_};
                 h = getHandle(transactionId);
             } // Scoped Lock end
+            // ファイル先頭へ移動
             LARGE_INTEGER zero;
             zero.QuadPart = 0LL;
             bErrorFlag = SetFilePointerEx(getHandle(transactionId), zero, NULL, FILE_BEGIN);
@@ -193,16 +192,15 @@ namespace PapierMache::DbStuff {
                 throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
             }
 
-            std::vector<LONGLONG> position;
-
             BOOL bResult = true;
             DWORD dwBytesRead = 1;
+            DWORD dwBytesWritten = 0;
             while (bResult && dwBytesRead != 0) {
                 bResult = false;
-                // 処理が成功した場合にtrue
+                // update処理が成功した場合にtrue(コミットは別)
                 bool isSucceed = false;
 
-                // 行頭位置退避用
+                // 行頭位置退避
                 LARGE_INTEGER save;
                 bErrorFlag = SetFilePointerEx(getHandle(transactionId), zero, &save, FILE_CURRENT);
                 if (FALSE == bErrorFlag) {
@@ -210,14 +208,13 @@ namespace PapierMache::DbStuff {
                 }
 
                 dwBytesRead = 0;
+                dwBytesWritten = 0;
                 std::vector<std::byte> buffer;
                 buffer.resize(2);
-
                 { // Scoped Lock start
                     // 書き込みロック
                     std::unique_lock<std::mutex> lock{*pControlMt_};
                     bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
-
                     if (FALSE == bResult) {
                         throw std::runtime_error{"Datafile::update(): ReadFile() -> GetLastError() : " + std::to_string(GetLastError())};
                     }
@@ -230,42 +227,126 @@ namespace PapierMache::DbStuff {
                             throw std::runtime_error{"Datafile::write(): ReadFile() : Error: number of bytes to read != number of bytes that were read"};
                         }
                     }
-                    const short s = toShort(buffer);
-                    DB_LOG << "s: " << s;
-                    DB_LOG << "transactionId: " << transactionId;
-                    if (s >= 0 && s != transactionId) {
-                        // TODO: この場合は別トランザクションがロックしているので待たなければならない
-                        if (!isUpdating_) {
-                            throw std::runtime_error{"Datafile::update(): isUpdating_ should be true but actually false."};
+                    // 有効なデータであれば処理
+                    if (static_cast<unsigned char>(buffer[0]) == 0) {
+                        // 他のトランザクションの更新対象でないかを確認する
+                        buffer.clear();
+                        buffer.resize(2);
+                        bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
+                        if (FALSE == bResult) {
+                            throw std::runtime_error{"Datafile::update(): ReadFile() -> GetLastError() : " + std::to_string(GetLastError())};
                         }
-                        while (true) {
-                            DB_LOG << "Datafile::update() wait start.";
-                            pCond_->wait(lock, [this] { return !isUpdating_; });
-                            DB_LOG << "Datafile::update() wait end.";
-
-                            if (s == 0) {
+                        else {
+                            if (dwBytesRead == 0) {
+                                DB_LOG << "------------------EOF";
                                 break;
                             }
-                            if (!isUpdating_) {
-                                throw std::runtime_error{"Datafile::update(): isUpdating_ should be true but actually false."};
+                            else if (dwBytesRead != buffer.size()) {
+                                throw std::runtime_error{"Datafile::write(): ReadFile() : Error: number of bytes to read != number of bytes that were read"};
                             }
                         }
+                        TRANSACTION_ID s = toShort(buffer);
+                        DB_LOG << "s: " << s;
+                        DB_LOG << "transactionId: " << transactionId;
+                        if (s >= 0 && s != transactionId) {
+                            while (true) {
+                                DB_LOG << "Datafile::update() wait start.";
+                                pCond_->wait(lock);
+                                DB_LOG << "Datafile::update() wait end.";
 
-                        DB_LOG << "Overcame!!";
-
-                    }
-                    else {
-                        if (isUpdating_) {
-                            throw std::runtime_error{"Datafile::update(): isUpdating_ should be false but actually true."};
+                                // 再びこの行のトランザクションの状態を確認する
+                                LARGE_INTEGER li;
+                                li.QuadPart = sizeof(TRANSACTION_ID);
+                                li.QuadPart = -1;
+                                bErrorFlag = SetFilePointerEx(getHandle(transactionId), li, NULL, FILE_CURRENT);
+                                if (FALSE == bErrorFlag) {
+                                    throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
+                                }
+                                buffer.clear();
+                                buffer.resize(2);
+                                bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
+                                if (FALSE == bResult) {
+                                    throw std::runtime_error{"Datafile::update(): ReadFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                                }
+                                else {
+                                    if (dwBytesRead == 0) {
+                                        DB_LOG << "------------------EOF";
+                                        break;
+                                    }
+                                    else if (dwBytesRead != buffer.size()) {
+                                        throw std::runtime_error{"Datafile::write(): ReadFile() : Error: number of bytes to read != number of bytes that were read"};
+                                    }
+                                }
+                                s = toShort(buffer);
+                                if (s == 0) {
+                                    break;
+                                }
+                            }
+                            DB_LOG << "Overcame!!";
                         }
-                        isUpdating_ = true;
-                       
-                        // TODO: 条件に合致する行であればトランザクションIDを書き込む
 
-                        // TemporaryDataにこの行のポジションを設定して追加する
-
+                        // 更新処理開始
+                        // 条件に合致する行であればトランザクションIDを書き込む
+                        bool isMatch = true;
+                        for (const auto &e : mWhere) {
+                            // 行頭に戻る
+                            bErrorFlag = SetFilePointerEx(getHandle(transactionId), save, NULL, FILE_BEGIN);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
+                            }
+                            // 制御情報のサイズと対象列のオフセットを加える
+                            LARGE_INTEGER offset;
+                            offset.QuadPart = add(tableInfo_.offset(e.first), tableInfo_.controlDataSize());
+                            bErrorFlag = SetFilePointerEx(getHandle(transactionId), offset, NULL, FILE_CURRENT);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
+                            }
+                            // 読み込んで値を確認する(whereでわたされた全ての列で等しければ更新対象となる)
+                            buffer.clear();
+                            buffer.resize(tableInfo_.columnSize(e.first));
+                            assertSizeLimits<DWORD>(buffer.size());
+                            bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
+                            if (FALSE == bResult) {
+                                throw std::runtime_error{"Datafile::update(): ReadFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                            }
+                            else {
+                                if (dwBytesRead == 0) {
+                                    break;
+                                }
+                                else if (dwBytesRead != buffer.size()) {
+                                    throw std::runtime_error{"Datafile::write(): ReadFile() : Error: number of bytes to read != number of bytes that were read"};
+                                }
+                            }
+                            if (!tableInfo_.isEqual(e.first, e.second, buffer)) {
+                                isMatch = false;
+                                break;
+                            }
+                        }
+                        if (isMatch) {
+                            // 行頭に戻る
+                            bErrorFlag = SetFilePointerEx(getHandle(transactionId), save, NULL, FILE_BEGIN);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
+                            }
+                            // 自身のトランザクションIDを制御情報に書き込む
+                            ControlData cd{0, transactionId};
+                            bErrorFlag = WriteFile(getHandle(transactionId), &cd, sizeof(cd), &dwBytesWritten, NULL);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                            }
+                            else {
+                                if (dwBytesWritten != sizeof(cd)) {
+                                    throw std::runtime_error{"Datafile::write(): WriteFile() : Error: number of bytes to write != number of bytes that were written"};
+                                }
+                                else {
+                                    DB_LOG << "Datafile::write(): succeed. transactionId: " << transactionId;
+                                }
+                            }
+                            // TemporaryDataにこの行のポジションを設定して追加する
+                            std::lock_guard<std::mutex> lk{*pMt_};
+                            temp_.emplace_back(save.QuadPart, transactionId, mData);
+                        }
                         isSucceed = true;
-                        isUpdating_ = false;
                     }
                 } // Scoped Lock end
 
@@ -338,17 +419,6 @@ namespace PapierMache::DbStuff {
 
             ~TableInfo()
             {
-                // LOG << "columnDefinitions_";
-                // for (const auto &e : columnDefinitions_) {
-                //     LOG << std::get<0>(e) << ", " << std::get<1>(e) << ", " << std::get<2>(e);
-                // }
-                // LOG << "permissions_";
-                // for (const auto &e : permissions_) {
-                //     LOG << e.first;
-                //     for (const auto &userName : e.second) {
-                //         LOG << userName;
-                //     }
-                // }
             }
 
             const std::string columnType(const std::string colName) const
@@ -393,6 +463,56 @@ namespace PapierMache::DbStuff {
                 return false;
             }
 
+            bool isEqual(const std::string colName,
+                         const std::vector<std::byte> &lhs,
+                         const std::vector<std::byte> &rhs)
+            {
+                const std::string colType = columnType(colName);
+                if (colType == "string") {
+                    // NULL終端文字を無視する
+                    if (lhs.size() == rhs.size()) {
+                        return lhs == rhs;
+                    }
+                    else if (lhs.size() > rhs.size()) {
+                        size_t point = rhs.size();
+                        for (size_t s = 0; s < point; ++s) {
+                            if (lhs[s] != rhs[s]) {
+                                return false;
+                            }
+                        }
+                        for (size_t s = point; s < lhs.size(); ++s) {
+                            if (static_cast<unsigned char>(lhs[s]) != 0) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+                    else {
+                        size_t point = lhs.size();
+                        for (size_t s = 0; s < point; ++s) {
+                            if (lhs[s] != rhs[s]) {
+                                return false;
+                            }
+                        }
+                        for (size_t s = point; s < rhs.size(); ++s) {
+                            if (static_cast<unsigned char>(rhs[s]) != 0) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+                }
+                else if (colType == "int") {
+                    return lhs == rhs;
+                }
+                else if (colType == "datetime") {
+                    return lhs == rhs;
+                }
+                else {
+                    throw std::runtime_error{"Datafile::isEqual(): unknown column type"};
+                }
+            }
+
             size_t controlDataSize() const
             {
                 return sizeof(ControlData);
@@ -426,12 +546,13 @@ namespace PapierMache::DbStuff {
         };
 
         struct ControlData {
-            const TRANSACTION_ID transactionId_;
             // 有効であれば0
             const unsigned char flag_;
+            const unsigned char alignment_;
+            const TRANSACTION_ID transactionId_;
 
-            ControlData(const TRANSACTION_ID transactionId, const unsigned char flag)
-                : transactionId_{transactionId}, flag_{flag}
+            ControlData(const unsigned char flag, const TRANSACTION_ID transactionId)
+                : flag_{flag}, alignment_{0}, transactionId_{transactionId}
             {
             }
         };
@@ -444,7 +565,21 @@ namespace PapierMache::DbStuff {
                 : position_{position},
                   transactionId_{transactionId},
                   m_{m},
-                  toCommit_{false}
+                  toCommit_{false},
+                  isFinished_{false}
+            {
+            }
+
+            TemporaryData(const LONGLONG position,
+                          const TRANSACTION_ID transactionId,
+                          const std::map<std::string, std::vector<std::byte>> &m,
+                          const bool toCommit,
+                          const bool isFinished)
+                : position_{position},
+                  transactionId_{transactionId},
+                  m_{m},
+                  toCommit_{toCommit},
+                  isFinished_{isFinished}
             {
             }
 
@@ -453,10 +588,17 @@ namespace PapierMache::DbStuff {
                 toCommit_ = b;
             }
 
+            // このTemporaryDataを無効化する
+            void finish()
+            {
+                isFinished_ = true;
+            }
+
             const LONGLONG position() const { return position_; }
             const TRANSACTION_ID transactionId() const { return transactionId_; }
             const std::map<std::string, std::vector<std::byte>> m() const { return m_; }
             const bool toCommit() const { return toCommit_; }
+            bool isFinished() const { return isFinished_; }
 
         private:
             // 変更対象行のファイルポインタの位置(ファイル先頭から数える)
@@ -467,6 +609,8 @@ namespace PapierMache::DbStuff {
             const std::map<std::string, std::vector<std::byte>> m_;
             // コミットする場合はtrue
             bool toCommit_;
+            // コミット後の廃棄に利用する 廃棄する場合はtrue
+            bool isFinished_;
         };
 
         LONGLONG add(const LONGLONG value1, const LONGLONG value2)
@@ -612,18 +756,14 @@ namespace PapierMache::DbStuff {
             return result;
         }
 
+        // データファイルにトランザクションでコミットされた内容を書き込む
+        // commit関数からのみ呼び出すこと
         void write()
         {
-            std::vector<size_t> indexs;
             DWORD dwBytesWritten = 0;
             BOOL bErrorFlag = FALSE;
             for (TemporaryData &td : temp_) {
                 if (td.toCommit()) {
-                    // TODO: データのパースが必要
-                    // std::vector<char> data;
-                    // for (const std::byte b : td.v()) {
-                    //     data.push_back(static_cast<char>(b));
-                    // }
                     if (td.position() == -1LL) {
                         // 追記なので最初にシーケンスをファイル末尾に移動する
                         LARGE_INTEGER li;
@@ -634,57 +774,41 @@ namespace PapierMache::DbStuff {
                         }
                         // コントロールデータの作成
                         DB_LOG << "-----------------------------" << td.transactionId();
-                        ControlData cd{-1, 0};
-                        bErrorFlag = WriteFile(getHandle(td.transactionId()), // open file handle
-                                               &cd,                           // start of data to write
-                                               sizeof(cd),                    // number of bytes to write
-                                               &dwBytesWritten,               // number of bytes that were written
-                                               NULL);                         // no overlapped structure
-
+                        ControlData cd{0, -1};
+                        bErrorFlag = WriteFile(getHandle(td.transactionId()), &cd, sizeof(cd), &dwBytesWritten, NULL);
                         if (FALSE == bErrorFlag) {
                             throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
                         }
                         else {
                             if (dwBytesWritten != sizeof(cd)) {
-                                // microsoftのサンプルコードのコメントそのまま残す
-                                // (https://docs.microsoft.com/ja-jp/windows/win32/fileio/opening-a-file-for-reading-or-writing)
-                                // This is an error because a synchronous write that results in
-                                // success (WriteFile returns TRUE) should write all data as
-                                // requested. This would not necessarily be the case for
-                                // asynchronous writes.
                                 throw std::runtime_error{"Datafile::write(): WriteFile() : Error: number of bytes to write != number of bytes that were written"};
                             }
                             else {
                                 DB_LOG << "Datafile::write(): succeed. transactionId: " << td.transactionId();
                             }
                         }
+                        // データの行頭位置を退避(制御情報ではない)
                         LARGE_INTEGER save;
                         li.QuadPart = 0LL;
-                        SetFilePointerEx(getHandle(td.transactionId()), li, &save, FILE_CURRENT);
-                        // const LONGLONG startPosition = save.QuadPart;
+                        bErrorFlag = SetFilePointerEx(getHandle(td.transactionId()), li, &save, FILE_CURRENT);
+                        if (FALSE == bErrorFlag) {
+                            throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                        }
                         for (const auto &e : td.m()) {
-                            DB_LOG << e.first;
+                            // 列のオフセットを加える
                             LARGE_INTEGER position;
                             position.QuadPart = add(save.QuadPart, tableInfo_.offset(e.first));
-                            // position.QuadPart = add(save.QuadPart, add(tableInfo_.offset(e.first), tableInfo_.columnSize(e.first)));
-                            SetFilePointerEx(getHandle(td.transactionId()), position, NULL, FILE_BEGIN);
+                            bErrorFlag = SetFilePointerEx(getHandle(td.transactionId()), position, NULL, FILE_BEGIN);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                            }
 
-                            bErrorFlag = WriteFile(getHandle(td.transactionId()), // open file handle
-                                                   e.second.data(),               // start of data to write
-                                                   e.second.size(),               // number of bytes to write
-                                                   &dwBytesWritten,               // number of bytes that were written
-                                                   NULL);                         // no overlapped structure
-
+                            bErrorFlag = WriteFile(getHandle(td.transactionId()), e.second.data(), e.second.size(), &dwBytesWritten, NULL);
                             if (FALSE == bErrorFlag) {
                                 throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
                             }
                             else {
                                 if (dwBytesWritten != e.second.size()) {
-                                    // microsoftのサンプルコードのコメントそのまま残す(https://docs.microsoft.com/ja-jp/windows/win32/fileio/opening-a-file-for-reading-or-writing)
-                                    // This is an error because a synchronous write that results in
-                                    // success (WriteFile returns TRUE) should write all data as
-                                    // requested. This would not necessarily be the case for
-                                    // asynchronous writes.
                                     throw std::runtime_error{"Datafile::write(): WriteFile() : Error: number of bytes to write != number of bytes that were written"};
                                 }
                                 else {
@@ -694,11 +818,104 @@ namespace PapierMache::DbStuff {
                         }
                     }
                     else {
-                        // 更新または削除の場合
+                        // 更新の場合
+                        if (td.m().size() > 0) {
+                            // td.position()には制御情報も含めた開始位置が入っているのでデータ部分の先頭に移動する
+                            LARGE_INTEGER li;
+                            li.QuadPart = add(td.position(), tableInfo_.controlDataSize());
+                            bErrorFlag = SetFilePointerEx(getHandle(td.transactionId()), li, NULL, FILE_BEGIN);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                            }
+                            // データ部分の先頭位置退避
+                            LARGE_INTEGER save = li;
+                            for (const auto &e : td.m()) {
+                                // 更新対象列のオフセットを加える
+                                LARGE_INTEGER position;
+                                position.QuadPart = add(save.QuadPart, tableInfo_.offset(e.first));
+                                bErrorFlag = SetFilePointerEx(getHandle(td.transactionId()), position, NULL, FILE_BEGIN);
+                                if (FALSE == bErrorFlag) {
+                                    throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                                }
+                                // 最初に0埋めする
+                                std::vector<std::byte> zeroSeq;
+                                zeroSeq.resize(tableInfo_.columnSize(e.first));
+                                bErrorFlag = WriteFile(getHandle(td.transactionId()), zeroSeq.data(), zeroSeq.size(), &dwBytesWritten, NULL);
+                                if (FALSE == bErrorFlag) {
+                                    throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                                }
+                                else {
+                                    if (dwBytesWritten != zeroSeq.size()) {
+                                        throw std::runtime_error{"Datafile::write(): WriteFile() : Error: number of bytes to write != number of bytes that were written"};
+                                    }
+                                    else {
+                                        DB_LOG << "Datafile::write(): succeed. transactionId: " << td.transactionId();
+                                    }
+                                }
+                                // データを書き込む
+                                bErrorFlag = SetFilePointerEx(getHandle(td.transactionId()), position, NULL, FILE_BEGIN);
+                                if (FALSE == bErrorFlag) {
+                                    throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                                }
+                                bErrorFlag = WriteFile(getHandle(td.transactionId()), e.second.data(), e.second.size(), &dwBytesWritten, NULL);
+                                if (FALSE == bErrorFlag) {
+                                    throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                                }
+                                else {
+                                    if (dwBytesWritten != e.second.size()) {
+                                        throw std::runtime_error{"Datafile::write(): WriteFile() : Error: number of bytes to write != number of bytes that were written"};
+                                    }
+                                    else {
+                                        DB_LOG << "Datafile::write(): succeed. transactionId: " << td.transactionId();
+                                    }
+                                }
+                            }
+                            // トランザクションIDを-1に戻す
+                            li.QuadPart = td.position();
+                            bErrorFlag = SetFilePointerEx(getHandle(td.transactionId()), li, NULL, FILE_BEGIN);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                            }
+                            ControlData cd{0, -1};
+                            bErrorFlag = WriteFile(getHandle(td.transactionId()), &cd, sizeof(cd), &dwBytesWritten, NULL);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
+                            }
+                            else {
+                                if (dwBytesWritten != sizeof(cd)) {
+                                    throw std::runtime_error{"Datafile::write(): WriteFile() : Error: number of bytes to write != number of bytes that were written"};
+                                }
+                                else {
+                                    DB_LOG << "Datafile::write(): succeed. transactionId: " << td.transactionId();
+                                }
+                            }
+                        }
+                        else {
+                            // 削除の場合
+                        }
                     }
-
                     td.setToCommit(false);
+                    td.finish();
                 }
+            }
+            // temp_を更新する
+            std::vector<TemporaryData> v;
+            for (const TemporaryData &td : temp_) {
+                if (!td.isFinished()) {
+                    v.emplace_back(td.position(), td.transactionId(), td.m(), td.toCommit(), td.isFinished());
+                }
+            }
+            temp_.swap(v);
+        }
+
+        template <typename T>
+        void assertSizeLimits(const size_t size) const
+        {
+#pragma push_macro("max")
+#undef max
+            if (std::numeric_limits<T>::max() < size) {
+#pragma pop_macro("max")
+                throw std::runtime_error("size overflow");
             }
         }
 
@@ -730,7 +947,6 @@ namespace PapierMache::DbStuff {
         // 制御情報用のミューテックス
         std::unique_ptr<std::mutex> pControlMt_;
         // 制御情報用の条件変数
-        bool isUpdating_;
         std::unique_ptr<std::condition_variable> pCond_;
 
         // データ用のミューテックス
