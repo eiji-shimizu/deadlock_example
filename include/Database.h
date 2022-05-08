@@ -132,22 +132,23 @@ namespace PapierMache::DbStuff {
             for (Datafile &f : datafiles_) {
                 if (f.tableName() == "user") {
                     toBytesDataFromString("USER_NAME=\"testuser\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.insert(5, out);
+                    f.insert(261, out);
                     out.clear();
                     toBytesDataFromString("USER_NAME=\"testuser01234567\",PASSWORD=\"@012345678901234567890123456789_\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
                     f.insert(5, out);
                     out.clear();
                     toBytesDataFromString("USER_NAME=\"太郎\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.insert(5, out);
+                    f.insert(261, out);
                     out.clear();
                     f.commit(5);
+                    f.commit(261);
                     toBytesDataFromString("USER_NAME=\"花子\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.insert(6, out);
+                    f.insert(1280, out);
                     out.clear();
                     toBytesDataFromString("USER_NAME=\"ichiro\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.insert(6, out);
+                    f.insert(1280, out);
                     out.clear();
-                    f.commit(6);
+                    f.commit(1280);
                     std::vector<std::byte> where;
                     toBytesDataFromString("USER_NAME=\"testuser\"", where);
                     toBytesDataFromString("USER_NAME=\"testuser2\",DATETIME=\"30827:12:31:23:59:59:999\"", out);

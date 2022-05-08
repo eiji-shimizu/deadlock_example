@@ -9,6 +9,7 @@
 #include <windows.h>
 #include <winnt.h>
 
+#include <condition_variable>
 #include <exception>
 #include <filesystem>
 #include <map>
@@ -30,7 +31,10 @@ namespace PapierMache::DbStuff {
             : tableName_{dataFileName},
               temp_{},
               pMt_{new std::mutex},
-              pSharedMt_{new std::shared_mutex}
+              pControlMt_{new std::mutex},
+              isUpdating_{false},
+              pCond_{new std::condition_variable},
+              pDataSharedMt_{new std::shared_mutex}
         {
             hFile_ = createHandle(dataFileName);
             std::vector<std::tuple<std::string, std::string, int, int>> vec;
@@ -127,6 +131,10 @@ namespace PapierMache::DbStuff {
             : tableName_{std::move(rhs.tableName_)},
               tableInfo_{std::move(rhs.tableInfo_)},
               pMt_{std::move(rhs.pMt_)},
+              pControlMt_{std::move(rhs.pControlMt_)},
+              isUpdating_{rhs.isUpdating_},
+              pCond_{std::move(rhs.pCond_)},
+              pDataSharedMt_{std::move(rhs.pDataSharedMt_)},
               hFile_{rhs.hFile_},
               handles_{std::move(rhs.handles_)}
         {
@@ -145,6 +153,10 @@ namespace PapierMache::DbStuff {
             tableName_ = std::move(rhs.tableName_);
             tableInfo_ = std::move(rhs.tableInfo_);
             pMt_ = std::move(rhs.pMt_);
+            pControlMt_ = std::move(rhs.pControlMt_);
+            isUpdating_ = rhs.isUpdating_;
+            pCond_ = std::move(rhs.pCond_);
+            pDataSharedMt_ = std::move(rhs.pDataSharedMt_);
             hFile_ = rhs.hFile_;
             handles_ = std::move(rhs.handles_);
             for (auto &e : rhs.handles_) {
@@ -173,31 +185,46 @@ namespace PapierMache::DbStuff {
             { // Scoped Lock start
                 std::lock_guard<std::mutex> lock{*pMt_};
                 h = getHandle(transactionId);
-                LARGE_INTEGER li;
-                li.QuadPart = 0LL;
-                bErrorFlag = SetFilePointerEx(getHandle(transactionId), li, NULL, FILE_BEGIN);
+            } // Scoped Lock end
+            LARGE_INTEGER zero;
+            zero.QuadPart = 0LL;
+            bErrorFlag = SetFilePointerEx(getHandle(transactionId), zero, NULL, FILE_BEGIN);
+            if (FALSE == bErrorFlag) {
+                throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
+            }
+
+            std::vector<LONGLONG> position;
+
+            BOOL bResult = true;
+            DWORD dwBytesRead = 1;
+            while (bResult && dwBytesRead != 0) {
+                bResult = false;
+                // 処理が成功した場合にtrue
+                bool isSucceed = false;
+
+                // 行頭位置退避用
+                LARGE_INTEGER save;
+                bErrorFlag = SetFilePointerEx(getHandle(transactionId), zero, &save, FILE_CURRENT);
                 if (FALSE == bErrorFlag) {
                     throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
                 }
-            } // Scoped Lock end
-            std::vector<LONGLONG> position;
-            { // Scoped Lock start
-                // 書き込みロック
-                std::lock_guard<std::shared_mutex> lock{*pSharedMt_};
-                BOOL bResult = true;
-                DWORD dwBytesRead = 1;
-                while (bResult && dwBytesRead != 0) {
-                    bResult = false;
-                    dwBytesRead = 0;
-                    std::vector<std::byte> buffer;
-                    buffer.resize(2);
+
+                dwBytesRead = 0;
+                std::vector<std::byte> buffer;
+                buffer.resize(2);
+
+                { // Scoped Lock start
+                    // 書き込みロック
+                    std::unique_lock<std::mutex> lock{*pControlMt_};
                     bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
+
                     if (FALSE == bResult) {
                         throw std::runtime_error{"Datafile::update(): ReadFile() -> GetLastError() : " + std::to_string(GetLastError())};
                     }
                     else {
                         if (dwBytesRead == 0) {
                             DB_LOG << "------------------EOF";
+                            break;
                         }
                         else if (dwBytesRead != buffer.size()) {
                             throw std::runtime_error{"Datafile::write(): ReadFile() : Error: number of bytes to read != number of bytes that were read"};
@@ -208,30 +235,51 @@ namespace PapierMache::DbStuff {
                     DB_LOG << "transactionId: " << transactionId;
                     if (s >= 0 && s != transactionId) {
                         // TODO: この場合は別トランザクションがロックしているので待たなければならない
+                        if (!isUpdating_) {
+                            throw std::runtime_error{"Datafile::update(): isUpdating_ should be true but actually false."};
+                        }
+                        while (true) {
+                            DB_LOG << "Datafile::update() wait start.";
+                            pCond_->wait(lock, [this] { return !isUpdating_; });
+                            DB_LOG << "Datafile::update() wait end.";
+
+                            if (s == 0) {
+                                break;
+                            }
+                            if (!isUpdating_) {
+                                throw std::runtime_error{"Datafile::update(): isUpdating_ should be true but actually false."};
+                            }
+                        }
+
+                        DB_LOG << "Overcame!!";
+
                     }
                     else {
-                        LARGE_INTEGER li;
-                        li.QuadPart = -2;
-                        LARGE_INTEGER save;
-                        bErrorFlag = SetFilePointerEx(getHandle(transactionId), li, &save, FILE_CURRENT);
-                        if (FALSE == bErrorFlag) {
-                            throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
+                        if (isUpdating_) {
+                            throw std::runtime_error{"Datafile::update(): isUpdating_ should be false but actually true."};
                         }
-                        // 制御構造も含めた行頭位置を退避
-                        save.QuadPart = add(tableInfo_.columnSizeTotal(), tableInfo_.controlDataSize());
-
-                        // 再びデータの先頭に移動
-                        li.QuadPart = 2;
-                        bErrorFlag = SetFilePointerEx(getHandle(transactionId), li, NULL, FILE_CURRENT);
-                        if (FALSE == bErrorFlag) {
-                            throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
-                        }
+                        isUpdating_ = true;
+                       
                         // TODO: 条件に合致する行であればトランザクションIDを書き込む
 
                         // TemporaryDataにこの行のポジションを設定して追加する
+
+                        isSucceed = true;
+                        isUpdating_ = false;
                     }
+                } // Scoped Lock end
+
+                // 次の行に進む
+                save.QuadPart = tableInfo_.nextRow(save.QuadPart);
+                bErrorFlag = SetFilePointerEx(getHandle(transactionId), save, NULL, FILE_BEGIN);
+                if (FALSE == bErrorFlag) {
+                    throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
                 }
-            } // Scoped Lock end
+
+                if (isSucceed) {
+                    pCond_->notify_all();
+                }
+            } // while loop end
             return true;
         };
 
@@ -243,6 +291,8 @@ namespace PapierMache::DbStuff {
                     td.setToCommit();
                 }
             }
+            std::lock_guard<std::mutex> lockControl{*pControlMt_};
+            std::lock_guard<std::shared_mutex> lockData{*pDataSharedMt_};
             write();
             return true;
         }
@@ -665,7 +715,6 @@ namespace PapierMache::DbStuff {
             }
             short array[2];
             for (int i = 0; i < 2; ++i) {
-                // DB_LOG << "bytes.at(i): " << std::hex << static_cast<unsigned char>(bytes.at(i));
                 array[i] = static_cast<unsigned char>(bytes.at(i));
             }
             if (isLittleEndian()) {
@@ -678,7 +727,15 @@ namespace PapierMache::DbStuff {
         TableInfo tableInfo_;
         std::vector<TemporaryData> temp_;
         std::unique_ptr<std::mutex> pMt_;
-        std::unique_ptr<std::shared_mutex> pSharedMt_;
+        // 制御情報用のミューテックス
+        std::unique_ptr<std::mutex> pControlMt_;
+        // 制御情報用の条件変数
+        bool isUpdating_;
+        std::unique_ptr<std::condition_variable> pCond_;
+
+        // データ用のミューテックス
+        std::unique_ptr<std::shared_mutex> pDataSharedMt_;
+
         HANDLE hFile_;
         // key: トランザクションID, value: トランザクションごとのファイルハンドル
         std::map<short, HANDLE> handles_;
