@@ -502,21 +502,23 @@ namespace PapierMache::DbStuff {
             return true;
         }
 
-        void addTransactionTarget(const std::string connectionId, const std::string tableName, const std::vector<std::byte> &bytes)
+        TRANSACTION_ID getTransactionId(const std::string connectionId)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            TRANSACTION_ID transactionId = -1;
-            for (Transaction &t : transactionList_) {
+            for (const Transaction &t : transactionList_) {
                 if (t.connectionId() == connectionId) {
-                    transactionId = t.id();
-                    t.addToCommit(tableName, bytes);
+                    return t.id();
                 }
             }
-            for (Table &table : tableList_) {
-                if (table.name() == tableName) {
-                    table.setTarget(1, transactionId);
-                }
-            }
+            throw std::runtime_error{"Database::getTransactionId(): transaction is not found. connection id: " + connectionId};
+        }
+
+        Datafile &getDatafile(const std::string tableName)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            auto it = std::find_if(datafiles_.begin(), datafiles_.end(),
+                                   [tableName](const Datafile &ref) { return ref.tableName() == tableName; });
+            return *it;
         }
 
         bool isTransactionExists(const std::string connectionId)
@@ -530,11 +532,36 @@ namespace PapierMache::DbStuff {
             return false;
         }
 
+        void commitTransaction(const TRANSACTION_ID id)
+        {
+            for (int i = 0; i < datafiles_.size(); ++i) {
+                std::lock_guard<std::mutex> lock{mt_};
+                datafiles_[i].commit(id);
+            }
+        }
+
         void toBytesDataFromString(const std::string &s, std::vector<std::byte> &out)
         {
             for (const char c : s) {
                 out.push_back(static_cast<std::byte>(c));
             }
+        }
+
+        // 引数の先頭から'('以外が出現するまでにある'('を削除する
+        // 引数の末尾から')'以外が出現するまでにある')'を削除する
+        void trimParentheses(std::vector<std::byte> &bytes)
+        {
+            auto it = bytes.begin();
+            while (static_cast<char>(*it) == '(' || static_cast<char>(*it) == ' ') {
+                ++it;
+            }
+            bytes.erase(bytes.begin(), it);
+
+            auto rit = bytes.rbegin();
+            while (static_cast<char>(*rit) == ')' || static_cast<char>(*rit) == ' ') {
+                ++rit;
+            }
+            bytes.erase(rit.base(), bytes.end());
         }
 
         std::thread startChildThread(const std::string connectionId)
@@ -642,8 +669,68 @@ namespace PapierMache::DbStuff {
                             }
                             continue;
                         }
+                        // ここに到達した場合はトランザクションは存在しているので実際の要求を処理する
+                        // 操作名を取り出す
+                        oss.str("");
+                        i = 7;
+                        // iを空白文字が終わるまで進める
+                        for (; i < data.size(); ++i) {
+                            if (static_cast<char>(data[i]) != ' ') {
+                                break;
+                            }
+                        }
+                        for (; i < data.size(); ++i) {
+                            if (static_cast<char>(data[i]) != ' ') {
+                                oss << static_cast<char>(data[i]);
+                            }
+                            else {
+                                break;
+                            }
+                        }
+                        const std::string operationName = toLower(trim(oss.str(), '"'));
 
-                        addTransactionTarget(id, "tableName", data);
+                        // テーブル名を取り出す
+                        // iを空白文字が終わるまで進める
+                        oss.str("");
+                        for (; i < data.size(); ++i) {
+                            if (static_cast<char>(data[i]) != ' ') {
+                                break;
+                            }
+                        }
+                        for (; i < data.size(); ++i) {
+                            if (static_cast<char>(data[i]) != ' ') {
+                                oss << static_cast<char>(data[i]);
+                            }
+                            else {
+                                break;
+                            }
+                        }
+                        const std::string tableName = toLower(oss.str());
+                        oss.str("");
+                        // iを空白文字が終わるまで進める
+                        for (; i < data.size(); ++i) {
+                            if (static_cast<char>(data[i]) != ' ') {
+                                break;
+                            }
+                        }
+                        if (operationName == "select") {
+                        }
+                        else if (operationName == "insert") {
+                            std::vector<std::byte> v;
+                            for (; i < data.size(); ++i) {
+                                v.push_back(data[i]);
+                            }
+                            trimParentheses(v);
+                            DB_LOG << "tableName: " << tableName;
+                            bool result = getDatafile(tableName).insert(getTransactionId(id), v);
+                        }
+                        else if (operationName == "update") {
+                        }
+                        else if (operationName == "delete") {
+                        }
+                        else if (operationName == "commit") {
+                            commitTransaction(getTransactionId(id));
+                        }
                         data.push_back(static_cast<std::byte>(' '));
                         data.push_back(static_cast<std::byte>('O'));
                         data.push_back(static_cast<std::byte>('K'));

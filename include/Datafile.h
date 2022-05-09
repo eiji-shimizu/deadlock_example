@@ -5,6 +5,7 @@
 
 #include "Common.h"
 #include "Logger.h"
+#include "Utils.h"
 
 #include <windows.h>
 #include <winnt.h>
@@ -29,14 +30,14 @@ namespace PapierMache::DbStuff {
     class Datafile {
     public:
         Datafile(const std::string dataFileName, const std::map<std::string, std::string> &tableInfo)
-            : tableName_{dataFileName},
+            : tableName_{toLower(dataFileName)},
               temp_{},
               pMt_{new std::mutex},
               pControlMt_{new std::mutex},
               pCond_{new std::condition_variable},
               pDataSharedMt_{new std::shared_mutex}
         {
-            hFile_ = createHandle(dataFileName);
+            hFile_ = createHandle(tableName_);
             std::vector<std::tuple<std::string, std::string, int, int>> vec;
             std::map<std::string, std::vector<std::string>> m;
             std::map<std::string, int> order;
@@ -67,12 +68,12 @@ namespace PapierMache::DbStuff {
                             oss << c;
                         }
                         else {
-                            order.insert(std::make_pair(oss.str(), no++));
+                            order.insert(std::make_pair(toLower(oss.str()), no++));
                             oss.str("");
                         }
                     }
                     if (oss.str() != "") {
-                        order.insert(std::make_pair(oss.str(), no++));
+                        order.insert(std::make_pair(toLower(oss.str()), no++));
                         oss.str("");
                     }
                 }
@@ -94,7 +95,7 @@ namespace PapierMache::DbStuff {
                     if (std::stoi(oss.str()) <= 0) {
                         throw std::runtime_error{"column size cannot be zero."};
                     }
-                    vec.push_back(std::make_tuple(e.first, colType, std::stoi(oss.str()), 0));
+                    vec.push_back(std::make_tuple(toLower(e.first), toLower(colType), std::stoi(oss.str()), 0));
                     oss.str("");
                 }
             }
@@ -112,6 +113,7 @@ namespace PapierMache::DbStuff {
 
             tableInfo_ = {vec, m};
         }
+
         ~Datafile(){
             CATCH_ALL_EXCEPTIONS({
                 DB_LOG << "~Datafile(): " << tableName_ << " CloseHandle BEFORE";
@@ -122,14 +124,17 @@ namespace PapierMache::DbStuff {
                 DB_LOG << "~Datafile(): " << tableName_ << " CloseHandle AFTER";
             })}
 
-        // コピー禁止
+        // コピー演算禁止
         Datafile(const Datafile &) = delete;
         Datafile &operator=(const Datafile &) = delete;
+        // ムーブコピー禁止
+        Datafile &operator=(Datafile &&rhs) = delete;
 
         // ムーブコンストラクタ
         Datafile(Datafile &&rhs)
             : tableName_{std::move(rhs.tableName_)},
               tableInfo_{std::move(rhs.tableInfo_)},
+              temp_{std::move(rhs.temp_)},
               pMt_{std::move(rhs.pMt_)},
               pControlMt_{std::move(rhs.pControlMt_)},
               pCond_{std::move(rhs.pCond_)},
@@ -141,27 +146,6 @@ namespace PapierMache::DbStuff {
                 e.second = INVALID_HANDLE_VALUE;
             }
             rhs.hFile_ = INVALID_HANDLE_VALUE;
-        }
-        // ムーブ代入
-        Datafile &operator=(Datafile &&rhs)
-        {
-            std::lock_guard<std::mutex> lock{*pMt_};
-            if (this == &rhs) {
-                return *this;
-            }
-            tableName_ = std::move(rhs.tableName_);
-            tableInfo_ = std::move(rhs.tableInfo_);
-            pMt_ = std::move(rhs.pMt_);
-            pControlMt_ = std::move(rhs.pControlMt_);
-            pCond_ = std::move(rhs.pCond_);
-            pDataSharedMt_ = std::move(rhs.pDataSharedMt_);
-            hFile_ = rhs.hFile_;
-            handles_ = std::move(rhs.handles_);
-            for (auto &e : rhs.handles_) {
-                e.second = INVALID_HANDLE_VALUE;
-            }
-            rhs.hFile_ = INVALID_HANDLE_VALUE;
-            return *this;
         }
 
         bool insert(const TRANSACTION_ID transactionId, const std::vector<std::byte> &data)
@@ -296,14 +280,14 @@ namespace PapierMache::DbStuff {
                             }
                             // 制御情報のサイズと対象列のオフセットを加える
                             LARGE_INTEGER offset;
-                            offset.QuadPart = add(tableInfo_.offset(e.first), tableInfo_.controlDataSize());
+                            offset.QuadPart = add(tableInfo_.offset(toLower(e.first)), tableInfo_.controlDataSize());
                             bErrorFlag = SetFilePointerEx(getHandle(transactionId), offset, NULL, FILE_CURRENT);
                             if (FALSE == bErrorFlag) {
                                 throw std::runtime_error{"Datafile::update(): SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError())};
                             }
                             // 読み込んで値を確認する(whereでわたされた全ての列で等しければ更新対象となる)
                             buffer.clear();
-                            buffer.resize(tableInfo_.columnSize(e.first));
+                            buffer.resize(tableInfo_.columnSize(toLower(e.first)));
                             assertSizeLimits<DWORD>(buffer.size());
                             bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
                             if (FALSE == bResult) {
@@ -317,7 +301,7 @@ namespace PapierMache::DbStuff {
                                     throw std::runtime_error{"Datafile::write(): ReadFile() : Error: number of bytes to read != number of bytes that were read"};
                                 }
                             }
-                            if (!tableInfo_.isEqual(e.first, e.second, buffer)) {
+                            if (!tableInfo_.isEqual(toLower(e.first), e.second, buffer)) {
                                 isMatch = false;
                                 break;
                             }
@@ -385,12 +369,12 @@ namespace PapierMache::DbStuff {
 
         const std::string columnType(const std::string colName) const
         {
-            return tableInfo_.columnType(colName);
+            return tableInfo_.columnType(toLower(colName));
         }
 
         const int columnSize(const std::string colName) const
         {
-            return tableInfo_.columnSize(colName);
+            return tableInfo_.columnSize(toLower(colName));
         }
 
         const int columnSizeTotal() const
@@ -583,6 +567,15 @@ namespace PapierMache::DbStuff {
             {
             }
 
+            // ムーブコンストラクタ
+            TemporaryData(TemporaryData &&) = default;
+
+            // コピー演算禁止
+            TemporaryData(const TemporaryData &) = delete;
+            TemporaryData &operator=(const TemporaryData &) = delete;
+            // ムーブコピー禁止
+            TemporaryData &operator=(TemporaryData &&) = delete;
+
             void setToCommit(bool b = true)
             {
                 toCommit_ = b;
@@ -598,7 +591,7 @@ namespace PapierMache::DbStuff {
             const TRANSACTION_ID transactionId() const { return transactionId_; }
             const std::map<std::string, std::vector<std::byte>> m() const { return m_; }
             const bool toCommit() const { return toCommit_; }
-            bool isFinished() const { return isFinished_; }
+            const bool isFinished() const { return isFinished_; }
 
         private:
             // 変更対象行のファイルポインタの位置(ファイル先頭から数える)
@@ -681,7 +674,9 @@ namespace PapierMache::DbStuff {
                     char c = static_cast<char>(b);
                     // keyは英数字とアンダーバーのみ可 イコールは以下で処理
                     if (!std::isalnum(c) && c != '_' && c != '=') {
-                        throw std::runtime_error{"Datafile::parseKeyValueVector(): parse error. key cannot contain '" + std::string{c} + "'"};
+                        if (trim(oss.str(), ' ') != "" || c != ' ') {
+                            throw std::runtime_error{"Datafile::parseKeyValueVector(): parse error. key cannot contain '" + std::string{c} + "'"};
+                        }
                     }
                 }
 
@@ -737,7 +732,7 @@ namespace PapierMache::DbStuff {
                     }
                 }
                 else {
-                    if (isKey) {
+                    if (isKey && static_cast<char>(b) != ' ') {
                         oss << static_cast<char>(b);
                     }
                     if (isValue) {
@@ -797,7 +792,7 @@ namespace PapierMache::DbStuff {
                         for (const auto &e : td.m()) {
                             // 列のオフセットを加える
                             LARGE_INTEGER position;
-                            position.QuadPart = add(save.QuadPart, tableInfo_.offset(e.first));
+                            position.QuadPart = add(save.QuadPart, tableInfo_.offset(toLower(e.first)));
                             bErrorFlag = SetFilePointerEx(getHandle(td.transactionId()), position, NULL, FILE_BEGIN);
                             if (FALSE == bErrorFlag) {
                                 throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
@@ -832,14 +827,14 @@ namespace PapierMache::DbStuff {
                             for (const auto &e : td.m()) {
                                 // 更新対象列のオフセットを加える
                                 LARGE_INTEGER position;
-                                position.QuadPart = add(save.QuadPart, tableInfo_.offset(e.first));
+                                position.QuadPart = add(save.QuadPart, tableInfo_.offset(toLower(e.first)));
                                 bErrorFlag = SetFilePointerEx(getHandle(td.transactionId()), position, NULL, FILE_BEGIN);
                                 if (FALSE == bErrorFlag) {
                                     throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};
                                 }
                                 // 最初に0埋めする
                                 std::vector<std::byte> zeroSeq;
-                                zeroSeq.resize(tableInfo_.columnSize(e.first));
+                                zeroSeq.resize(tableInfo_.columnSize(toLower(e.first)));
                                 bErrorFlag = WriteFile(getHandle(td.transactionId()), zeroSeq.data(), zeroSeq.size(), &dwBytesWritten, NULL);
                                 if (FALSE == bErrorFlag) {
                                     throw std::runtime_error{"Datafile::write(): WriteFile() -> GetLastError() : " + std::to_string(GetLastError())};

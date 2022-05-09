@@ -102,18 +102,28 @@ int main()
         db.start();
         db.start();
 
-        PapierMache::DbStuff::Connection con = db.getConnection();
-        testFunc(con, "con1", "PLEASE:TRANSACTION");
-        con.close();
-        PapierMache::DbStuff::Connection con2 = db.getConnection();
-        testFunc(con2, "con2", "PLEASE:UPDATE");
-        PapierMache::DbStuff::Connection con3 = db.getConnection();
-        testFunc(con3, "con3", "PLEASE:TRANSACTION");
-        testFunc(con3, "con3", "PLEASE:TRANSACTION");
-        testFunc(con3, "con3", "PLEASE:DELETE");
-        con3.close();
-        con2.close();
-        testFunc(con, "con1", "PLEASE:TRANSACTION");
+        // PapierMache::DbStuff::Connection con = db.getConnection();
+        // testFunc(con, "con1", "PLEASE:TRANSACTION");
+        // con.close();
+        // PapierMache::DbStuff::Connection con2 = db.getConnection();
+        // testFunc(con2, "con2", "PLEASE:UPDATE");
+        // PapierMache::DbStuff::Connection con3 = db.getConnection();
+        // testFunc(con3, "con3", "PLEASE:TRANSACTION");
+        // testFunc(con3, "con3", "PLEASE:TRANSACTION");
+        // testFunc(con3, "con3", "PLEASE:DELETE");
+        // con3.close();
+        // con2.close();
+        // testFunc(con, "con1", "PLEASE:TRANSACTION");
+
+        PapierMache::DbStuff::Connection con4 = db.getConnection();
+        testFunc(con4, "con4", "PLEASE:TRANSACTION");
+        testFunc(con4, "con4", "please:insert User    (   USER_NAME=\"testuser999\" , DATETIME=\"30827:12:31:23:59:59:999\")");
+        testFunc(con4, "con4", "PLEASE:commiT");
+
+        testFunc(con4, "con4", "PLEASE:TRANSACTION");
+        testFunc(con4, "con4", "please:update User    (   USER_NAME=\"testuser8787\" , DATETIME=\"30827:12:31:23:59:59:999\")(   USER_NAME=\"testuser999\" , DATETIME=\"30827:12:31:23:59:59:999\")");
+        testFunc(con4, "con4", "PLEASE:commiT");
+        con4.close();
         // テストコードここまで
 
         LOG << "------------------------------";

@@ -3,6 +3,8 @@
 
 #include "General.h"
 
+#include <windows.h>
+
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
