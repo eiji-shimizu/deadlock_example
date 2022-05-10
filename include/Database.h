@@ -76,6 +76,14 @@ namespace PapierMache::DbStuff {
         bool isInUse_;
     };
 
+    class DatabaseException : public std::runtime_error {
+    public:
+        DatabaseException(const char *message)
+            : std::runtime_error(message)
+        {
+        }
+    };
+
     class Database {
     public:
         using DataStream = std::vector<std::byte>;
@@ -539,6 +547,14 @@ namespace PapierMache::DbStuff {
             }
         }
 
+        void rollbackTransaction(const TRANSACTION_ID id)
+        {
+            for (int i = 0; i < datafiles_.size(); ++i) {
+                std::lock_guard<std::mutex> lock{mt_};
+                datafiles_[i].rollback(id);
+            }
+        }
+
         void toBytesDataFromString(const std::string &s, std::vector<std::byte> &out)
         {
             for (const char c : s) {
@@ -618,118 +634,133 @@ namespace PapierMache::DbStuff {
                             DB_LOG << "child thread return." << FILE_INFO;
                             return;
                         }
-                        DB_LOG << "connection id: " << id << " is processing." << FILE_INFO;
 
-                        // TODO: 要求を処理
                         std::vector<std::byte> data;
                         std::vector<std::byte> response;
-                        getData(id, data);
-                        // 最初の要求はトランザクションの開始であること
-                        // 続く要求はこのコネクションのユーザーに許可された処理であること
-                        // トランザクションがない状態で他の要求が来た場合はエラー
-                        // またトランザクションがある状態でトランザクションの要求が来た場合もエラーとする
-                        std::ostringstream oss{""};
-                        int i = 0;
-                        for (i = 0; i < data.size() && i < 7; ++i) {
-                            oss << static_cast<char>(data[i]);
-                        }
-                        if (toLower(oss.str()) != "please:") {
-                            toBytesDataFromString("parse error.", response);
-                            setData(id, std::cref(response));
-                            toNotify(id);
-                            continue;
-                        }
-                        oss.str("");
-                        for (; i < data.size() && i < 7 + 11; ++i) {
-                            oss << static_cast<char>(data[i]);
-                        }
-                        if (isTransactionExists(id) && toLower(oss.str()) == "transaction") {
-                            toBytesDataFromString("transaction is already exists.", response);
-                            setData(id, std::cref(response));
-                            toNotify(id);
-                            continue;
-                        }
-                        if (!isTransactionExists(id) && toLower(oss.str()) != "transaction") {
-                            toBytesDataFromString("cannot find transaction.", response);
-                            setData(id, std::cref(response));
-                            toNotify(id);
-                            continue;
-                        }
-                        if (!isTransactionExists(id) && toLower(oss.str()) == "transaction") {
-                            if (addTransaction(id)) {
-                                toBytesDataFromString("transaction start is succeed.", response);
-                                setData(id, std::cref(response));
-                                toNotify(id);
-                            }
-                            else {
-                                toBytesDataFromString("transaction start is failed.", response);
-                                setData(id, std::cref(response));
-                                toNotify(id);
-                            }
-                            continue;
-                        }
-                        // ここに到達した場合はトランザクションは存在しているので実際の要求を処理する
-                        // 操作名を取り出す
-                        oss.str("");
-                        i = 7;
-                        // iを空白文字が終わるまで進める
-                        for (; i < data.size(); ++i) {
-                            if (static_cast<char>(data[i]) != ' ') {
-                                break;
-                            }
-                        }
-                        for (; i < data.size(); ++i) {
-                            if (static_cast<char>(data[i]) != ' ') {
+                        try {
+                            DB_LOG << "connection id: " << id << " is processing." << FILE_INFO;
+                            getData(id, data);
+                            // 最初の要求はトランザクションの開始であること
+                            // 続く要求はこのコネクションのユーザーに許可された処理であること
+                            // トランザクションがない状態で他の要求が来た場合はエラー
+                            // またトランザクションがある状態でトランザクションの要求が来た場合もエラーとする
+                            std::ostringstream oss{""};
+                            int i = 0;
+                            for (i = 0; i < data.size() && i < 7; ++i) {
                                 oss << static_cast<char>(data[i]);
                             }
-                            else {
-                                break;
+                            if (toLower(oss.str()) != "please:") {
+                                toBytesDataFromString("parse error.", response);
+                                setData(id, std::cref(response));
+                                toNotify(id);
+                                continue;
                             }
-                        }
-                        const std::string operationName = toLower(trim(oss.str(), '"'));
-
-                        // テーブル名を取り出す
-                        // iを空白文字が終わるまで進める
-                        oss.str("");
-                        for (; i < data.size(); ++i) {
-                            if (static_cast<char>(data[i]) != ' ') {
-                                break;
-                            }
-                        }
-                        for (; i < data.size(); ++i) {
-                            if (static_cast<char>(data[i]) != ' ') {
+                            oss.str("");
+                            for (; i < data.size() && i < 7 + 11; ++i) {
                                 oss << static_cast<char>(data[i]);
                             }
-                            else {
-                                break;
+                            if (isTransactionExists(id) && toLower(oss.str()) == "transaction") {
+                                toBytesDataFromString("transaction is already exists.", response);
+                                setData(id, std::cref(response));
+                                toNotify(id);
+                                continue;
                             }
-                        }
-                        const std::string tableName = toLower(oss.str());
-                        oss.str("");
-                        // iを空白文字が終わるまで進める
-                        for (; i < data.size(); ++i) {
-                            if (static_cast<char>(data[i]) != ' ') {
-                                break;
+                            if (!isTransactionExists(id) && toLower(oss.str()) != "transaction") {
+                                toBytesDataFromString("cannot find transaction.", response);
+                                setData(id, std::cref(response));
+                                toNotify(id);
+                                continue;
                             }
-                        }
-                        if (operationName == "select") {
-                        }
-                        else if (operationName == "insert") {
-                            std::vector<std::byte> v;
+                            if (!isTransactionExists(id) && toLower(oss.str()) == "transaction") {
+                                if (addTransaction(id)) {
+                                    toBytesDataFromString("transaction start is succeed.", response);
+                                    setData(id, std::cref(response));
+                                    toNotify(id);
+                                }
+                                else {
+                                    toBytesDataFromString("transaction start is failed.", response);
+                                    setData(id, std::cref(response));
+                                    toNotify(id);
+                                }
+                                continue;
+                            }
+                            // ここに到達した場合はトランザクションは存在しているので実際の要求を処理する
+                            // 操作名を取り出す
+                            oss.str("");
+                            i = 7;
+                            // iを空白文字が終わるまで進める
                             for (; i < data.size(); ++i) {
-                                v.push_back(data[i]);
+                                if (static_cast<char>(data[i]) != ' ') {
+                                    break;
+                                }
                             }
-                            trimParentheses(v);
-                            DB_LOG << "tableName: " << tableName << FILE_INFO;
-                            bool result = getDatafile(tableName).insert(getTransactionId(id), v);
+                            for (; i < data.size(); ++i) {
+                                if (static_cast<char>(data[i]) != ' ') {
+                                    oss << static_cast<char>(data[i]);
+                                }
+                                else {
+                                    break;
+                                }
+                            }
+                            const std::string operationName = toLower(trim(oss.str(), '"'));
+
+                            // テーブル名を取り出す
+                            // iを空白文字が終わるまで進める
+                            oss.str("");
+                            for (; i < data.size(); ++i) {
+                                if (static_cast<char>(data[i]) != ' ') {
+                                    break;
+                                }
+                            }
+                            for (; i < data.size(); ++i) {
+                                if (static_cast<char>(data[i]) != ' ') {
+                                    oss << static_cast<char>(data[i]);
+                                }
+                                else {
+                                    break;
+                                }
+                            }
+                            const std::string tableName = toLower(oss.str());
+                            oss.str("");
+                            // iを空白文字が終わるまで進める
+                            for (; i < data.size(); ++i) {
+                                if (static_cast<char>(data[i]) != ' ') {
+                                    break;
+                                }
+                            }
+                            if (operationName == "select") {
+                            }
+                            else if (operationName == "insert") {
+                                std::vector<std::byte> v;
+                                for (; i < data.size(); ++i) {
+                                    v.push_back(data[i]);
+                                }
+                                trimParentheses(v);
+                                DB_LOG << "tableName: " << tableName << FILE_INFO;
+                                bool result = getDatafile(tableName).insert(getTransactionId(id), v);
+                            }
+                            else if (operationName == "update") {
+                                std::vector<std::byte> v;
+                                bool result = getDatafile(tableName).update(getTransactionId(id), v, v);
+                            }
+                            else if (operationName == "delete") {
+                            }
+                            else if (operationName == "commit") {
+                                commitTransaction(getTransactionId(id));
+                            }
+                            else if (operationName == "rollback") {
+                                rollbackTransaction(getTransactionId(id));
+                            }
                         }
-                        else if (operationName == "update") {
+                        catch (DatafileException &e) {
+                            // TODO: エラー内容を送信する
+                            DB_LOG << e.what() << FILE_INFO;
                         }
-                        else if (operationName == "delete") {
+                        catch (DatabaseException &e) {
+                            // TODO: エラー内容を送信する
+                            DB_LOG << e.what() << FILE_INFO;
                         }
-                        else if (operationName == "commit") {
-                            commitTransaction(getTransactionId(id));
-                        }
+
                         data.push_back(static_cast<std::byte>(' '));
                         data.push_back(static_cast<std::byte>('O'));
                         data.push_back(static_cast<std::byte>('K'));
