@@ -82,6 +82,11 @@ namespace PapierMache::DbStuff {
             : std::runtime_error(message)
         {
         }
+
+        DatabaseException(const std::string message)
+            : std::runtime_error(message)
+        {
+        }
     };
 
     class Database {
@@ -566,6 +571,10 @@ namespace PapierMache::DbStuff {
         // 引数の末尾から')'以外が出現するまでにある')'を削除する
         void trimParentheses(std::vector<std::byte> &bytes)
         {
+            if (bytes.size() == 0) {
+                return;
+            }
+
             auto it = bytes.begin();
             while (static_cast<char>(*it) == '(' || static_cast<char>(*it) == ' ') {
                 ++it;
@@ -577,6 +586,73 @@ namespace PapierMache::DbStuff {
                 ++rit;
             }
             bytes.erase(rit.base(), bytes.end());
+        }
+
+        void separate(const std::vector<std::byte> &data,
+                      size_t &start,
+                      std::vector<std::byte> &v,
+                      std::vector<std::byte> &where)
+        {
+            // 直前がエスケープシーケンスであった場合にtrue
+            bool isESMode = false;
+            // ""の内部にいる場合にtrue
+            bool isInnerDq = false;
+            bool isCandidate = false;
+            int i = start;
+            for (; i < data.size(); ++i) {
+                if (static_cast<char>(data[i]) == '\\') {
+                    isCandidate = false;
+                    if (isESMode) {
+                        isESMode = false;
+                    }
+                    else {
+                        isESMode = true;
+                    }
+                }
+                else if (static_cast<char>(data[i]) == '"') {
+                    isCandidate = false;
+                    if (isESMode) {
+                        // noop
+                    }
+                    else {
+                        if (isInnerDq) {
+                            isInnerDq = false;
+                        }
+                        else {
+                            isInnerDq = true;
+                        }
+                    }
+                    isESMode = false;
+                }
+                else if (static_cast<char>(data[i]) == ')') {
+                    if (isCandidate) {
+                        isCandidate = false;
+                    }
+                    else {
+                        if (!isInnerDq) {
+                            isCandidate = true;
+                        }
+                    }
+                    isESMode = false;
+                }
+                else if (static_cast<char>(data[i]) == '(') {
+                    if (isCandidate) {
+                        break;
+                    }
+                    isCandidate = false;
+                    isESMode = false;
+                }
+                else if (static_cast<char>(data[i]) != ' ') {
+                    isCandidate = false;
+                    isESMode = false;
+                }
+                v.push_back(data[i]);
+            }
+            // i = i + 1;
+            for (; i < data.size(); ++i) {
+                where.push_back(data[i]);
+            }
+            start = i;
         }
 
         std::thread startChildThread(const std::string connectionId)
@@ -645,7 +721,7 @@ namespace PapierMache::DbStuff {
                             // トランザクションがない状態で他の要求が来た場合はエラー
                             // またトランザクションがある状態でトランザクションの要求が来た場合もエラーとする
                             std::ostringstream oss{""};
-                            int i = 0;
+                            size_t i = 0;
                             for (i = 0; i < data.size() && i < 7; ++i) {
                                 oss << static_cast<char>(data[i]);
                             }
@@ -736,12 +812,15 @@ namespace PapierMache::DbStuff {
                                     v.push_back(data[i]);
                                 }
                                 trimParentheses(v);
-                                DB_LOG << "tableName: " << tableName << FILE_INFO;
                                 bool result = getDatafile(tableName).insert(getTransactionId(id), v);
                             }
                             else if (operationName == "update") {
                                 std::vector<std::byte> v;
-                                bool result = getDatafile(tableName).update(getTransactionId(id), v, v);
+                                std::vector<std::byte> where;
+                                separate(data, i, v, where);
+                                trimParentheses(v);
+                                trimParentheses(where);
+                                bool result = getDatafile(tableName).update(getTransactionId(id), v, where);
                             }
                             else if (operationName == "delete") {
                             }
@@ -751,14 +830,25 @@ namespace PapierMache::DbStuff {
                             else if (operationName == "rollback") {
                                 rollbackTransaction(getTransactionId(id));
                             }
+                            else {
+                                throw DatabaseException{"unknown operation name: " + operationName};
+                            }
                         }
                         catch (DatafileException &e) {
                             // TODO: エラー内容を送信する
                             DB_LOG << e.what() << FILE_INFO;
+                            toBytesDataFromString(e.what(), response);
+                            setData(id, std::cref(response));
+                            toNotify(id);
+                            continue;
                         }
                         catch (DatabaseException &e) {
                             // TODO: エラー内容を送信する
                             DB_LOG << e.what() << FILE_INFO;
+                            toBytesDataFromString(e.what(), response);
+                            setData(id, std::cref(response));
+                            toNotify(id);
+                            continue;
                         }
 
                         data.push_back(static_cast<std::byte>(' '));
@@ -939,8 +1029,10 @@ namespace PapierMache::DbStuff {
                 error = "request failed";
                 bool requestResult = con_.request();
                 if (!requestResult) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
                     requestResult = con_.request();
                     if (!requestResult) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(500));
                         requestResult = con_.request();
                     }
                 }

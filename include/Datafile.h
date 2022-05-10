@@ -716,6 +716,7 @@ namespace PapierMache::DbStuff {
                     if (isValue) {
                         value.push_back(b);
                     }
+                    isESMode = false;
                 }
                 else if (static_cast<char>(b) == '\\') {
                     if (isESMode) {
@@ -729,7 +730,6 @@ namespace PapierMache::DbStuff {
                 else if (static_cast<char>(b) == '"') {
                     if (isESMode) {
                         value.push_back(b);
-                        isESMode = false;
                     }
                     else {
                         if (isInnerDq) {
@@ -739,6 +739,7 @@ namespace PapierMache::DbStuff {
                             isInnerDq = true;
                         }
                     }
+                    isESMode = false;
                 }
                 else if (static_cast<char>(b) == ',') {
                     if (isInnerDq) {
@@ -757,6 +758,7 @@ namespace PapierMache::DbStuff {
                         oss.str("");
                         value.clear();
                     }
+                    isESMode = false;
                 }
                 else {
                     if (isKey && static_cast<char>(b) != ' ') {
@@ -765,6 +767,7 @@ namespace PapierMache::DbStuff {
                     if (isValue) {
                         value.push_back(b);
                     }
+                    isESMode = false;
                 }
             }
             if (oss.str() != "") {

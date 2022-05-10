@@ -120,9 +120,10 @@ int main()
         testFunc(con4, "con4", "please:insert User    (   USER_NAME=\"testuser999\" , DATETIME=\"30827:12:31:23:59:59:999\")");
         testFunc(con4, "con4", "PLEASE:commiT");
 
-        testFunc(con4, "con4", "PLEASE:TRANSACTION");
-        testFunc(con4, "con4", "please:update User    (   USER_NAME=\"testuser8787\" , DATETIME=\"30827:12:31:23:59:59:999\")(   USERr_NAME=\"testuser999\" , DATETIME=\"30827:12:31:23:59:59:999\")");
-        testFunc(con4, "con4", "PLEASE:ROLLBACK");
+        // testFunc(con4, "con4", "PLEASE:TRANSACTION");
+        testFunc(con4, "con4", "please:update User    (   USER_NAME=\"testuser8787\" , DATETIME=\"30827:12:31:23:59:59:999\")(   USER_NAME=\"testuser999\" , DATETIME=\"30827:12:31:23:59:59:999\")");
+        // testFunc(con4, "con4", "PLEASE:ROLLBACK");
+        testFunc(con4, "con4", "PLEASE:commit");
         con4.close();
         // テストコードここまで
 
