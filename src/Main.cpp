@@ -75,7 +75,7 @@ int main()
 {
     try {
 
-        LOG << "application start.";
+        LOG << "application start." << FILE_INFO;
         WEB_LOG << "web configuration is";
         WEB_LOG << "webServer PORT: " << PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT");
         WEB_LOG << "webServer MAX_SOCKETS: " << PapierMache::getValue<int>(webConfiguration, "webServer", "MAX_SOCKETS");
@@ -117,7 +117,7 @@ int main()
 
         PapierMache::DbStuff::Connection con4 = db.getConnection();
         testFunc(con4, "con4", "PLEASE:TRANSACTION");
-        testFunc(con4, "con4", "please:insert User    (   USER_NAME=\"testuser999\" , DATETIME=\"30827:12:31:23:59:59:999\")");
+        testFunc(con4, "con4", "please:insert User    (   USER_NAME=\"testuser999\" , DdATETIME=\"30827:12:31:23:59:59:999\")");
         testFunc(con4, "con4", "PLEASE:commiT");
 
         testFunc(con4, "con4", "PLEASE:TRANSACTION");
@@ -142,10 +142,10 @@ int main()
         return 0;
     }
     catch (std::exception &e) {
-        CATCH_ALL_EXCEPTIONS(LOG << e.what();)
+        CATCH_ALL_EXCEPTIONS(LOG << e.what() << FILE_INFO;)
     }
     catch (...) {
-        CATCH_ALL_EXCEPTIONS(LOG << "unexpected error or SEH exception.";)
+        CATCH_ALL_EXCEPTIONS(LOG << "unexpected error or SEH exception." << FILE_INFO;)
     }
     return 1;
 }

@@ -19,7 +19,8 @@
 #define DEBUG_LOG logger.stream().debug()
 #define DB_LOG logger.stream("DB").out()
 #define WEB_LOG logger.stream("WEB").out()
-#define FILE_INFO " [file: " << std::filesystem::path{__FILE__}.filename() << ", function: " << __FUNCTION__ << ", line: " << __LINE__ << "]"
+#define FILE_INFO \
+    std::string { " [file: " + std::filesystem::path{__FILE__}.filename().string() + ", function: " + std::string{__FUNCTION__} + ", line: " + std::to_string(__LINE__) + "]" }
 
 namespace PapierMache {
     template <typename outT>
