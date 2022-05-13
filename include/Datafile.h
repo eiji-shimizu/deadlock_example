@@ -361,6 +361,149 @@ namespace PapierMache::DbStuff {
             return true;
         };
 
+        std::vector<std::map<std::string, std::vector<std::byte>>> select(const TRANSACTION_ID transactionId, const std::vector<std::byte> &where)
+        {
+            std::map<std::string, std::vector<std::byte>> mWhere = parseKeyValueVector(where);
+            HANDLE h;
+            BOOL bErrorFlag = FALSE;
+            { // Scoped Lock start
+                std::lock_guard<std::mutex> lock{*pMt_};
+                h = getHandle(transactionId);
+            } // Scoped Lock end
+            // ファイル先頭へ移動
+            LARGE_INTEGER zero;
+            zero.QuadPart = 0LL;
+            bErrorFlag = SetFilePointerEx(getHandle(transactionId), zero, NULL, FILE_BEGIN);
+            if (FALSE == bErrorFlag) {
+                throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+            }
+
+            BOOL bResult = true;
+            DWORD dwBytesRead = 1;
+            // DWORD dwBytesWritten = 0;
+            std::vector<std::map<std::string, std::vector<std::byte>>> result;
+            while (bResult && dwBytesRead != 0) {
+                bResult = false;
+                // update処理が成功した場合にtrue(コミットは別)
+                // bool isSucceed = false;
+
+                // 行頭位置退避
+                LARGE_INTEGER save;
+                bErrorFlag = SetFilePointerEx(getHandle(transactionId), zero, &save, FILE_CURRENT);
+                if (FALSE == bErrorFlag) {
+                    throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                }
+
+                dwBytesRead = 0;
+                // dwBytesWritten = 0;
+                std::vector<std::byte> buffer;
+                buffer.resize(2);
+                { // Scoped Lock start
+                    std::unique_lock<std::mutex> lock{*pControlMt_};
+                    bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
+                    if (FALSE == bResult) {
+                        throw std::runtime_error{"ReadFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                    }
+                    else {
+                        if (dwBytesRead == 0) {
+                            DB_LOG << "------------------EOF" << FILE_INFO;
+                            break;
+                        }
+                        else if (dwBytesRead != buffer.size()) {
+                            throw std::runtime_error{"ReadFile() : Error: number of bytes to read != number of bytes that were read" + FILE_INFO};
+                        }
+                    }
+                } // Scoped Lock end
+                // 有効なデータであれば処理
+                if (static_cast<unsigned char>(buffer[0]) == 0) {
+                    // 条件に合致する行であれば戻り値に加える
+                    bool isMatch = true;
+                    for (const auto &e : mWhere) { // Scoped Lock start
+                        // 読み込みロック
+                        std::shared_lock<std::shared_mutex> lock{*pDataSharedMt_};
+                        // 行頭に戻る
+                        bErrorFlag = SetFilePointerEx(getHandle(transactionId), save, NULL, FILE_BEGIN);
+                        if (FALSE == bErrorFlag) {
+                            throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                        }
+                        // 制御情報のサイズと対象列のオフセットを加える
+                        LARGE_INTEGER offset;
+                        offset.QuadPart = add(tableInfo_.offset(toLower(e.first)), tableInfo_.controlDataSize());
+                        bErrorFlag = SetFilePointerEx(getHandle(transactionId), offset, NULL, FILE_CURRENT);
+                        if (FALSE == bErrorFlag) {
+                            throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                        }
+                        // 読み込んで値を確認する(whereでわたされた全ての列で等しければ更新対象となる)
+                        buffer.clear();
+                        buffer.resize(tableInfo_.columnSize(toLower(e.first)));
+                        assertSizeLimits<DWORD>(buffer.size());
+                        bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
+                        if (FALSE == bResult) {
+                            throw std::runtime_error{"ReadFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                        }
+                        else {
+                            if (dwBytesRead == 0) {
+                                break;
+                            }
+                            else if (dwBytesRead != buffer.size()) {
+                                throw std::runtime_error{"ReadFile() : Error: number of bytes to read != number of bytes that were read" + FILE_INFO};
+                            }
+                        }
+                        if (!tableInfo_.isEqual(toLower(e.first), e.second, buffer)) {
+                            isMatch = false;
+                            break;
+                        }
+                    } // Scoped Lock end
+
+                    if (isMatch) {
+                        std::map<std::string, std::vector<std::byte>> lines;
+                        for (const auto &e : tableInfo_.columnDefinitions()) { // Scoped Lock start
+                            // 読み込みロック
+                            std::shared_lock<std::shared_mutex> lock{*pDataSharedMt_};
+                            // 行頭に戻る
+                            bErrorFlag = SetFilePointerEx(getHandle(transactionId), save, NULL, FILE_BEGIN);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                            }
+                            // 制御情報のサイズと対象列のオフセットを加える
+                            LARGE_INTEGER offset;
+                            offset.QuadPart = add(tableInfo_.offset(toLower(std::get<0>(e))), tableInfo_.controlDataSize());
+                            bErrorFlag = SetFilePointerEx(getHandle(transactionId), offset, NULL, FILE_CURRENT);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                            }
+                            // 読み込んで値を戻り値に入れる
+                            buffer.clear();
+                            buffer.resize(tableInfo_.columnSize(toLower(std::get<0>(e))));
+                            assertSizeLimits<DWORD>(buffer.size());
+                            bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
+                            if (FALSE == bResult) {
+                                throw std::runtime_error{"ReadFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                            }
+                            else {
+                                if (dwBytesRead == 0) {
+                                    break;
+                                }
+                                else if (dwBytesRead != buffer.size()) {
+                                    throw std::runtime_error{"ReadFile() : Error: number of bytes to read != number of bytes that were read" + FILE_INFO};
+                                }
+                            }
+                            lines.insert(std::make_pair(toLower(std::get<0>(e)), buffer));
+                        } // Scoped Lock end
+                        result.push_back(lines);
+                    }
+                }
+
+                // 次の行に進む
+                save.QuadPart = tableInfo_.nextRow(save.QuadPart);
+                bErrorFlag = SetFilePointerEx(getHandle(transactionId), save, NULL, FILE_BEGIN);
+                if (FALSE == bErrorFlag) {
+                    throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                }
+            } // while loop end
+            return result;
+        }
+
         bool commit(const TRANSACTION_ID transactionId)
         {
             std::lock_guard<std::mutex> lock{*pMt_};
@@ -547,6 +690,11 @@ namespace PapierMache::DbStuff {
                     }
                 }
                 throw DatafileException{"cannot find column : " + colName + FILE_INFO};
+            }
+
+            const std::vector<std::tuple<std::string, std::string, int, int>> &columnDefinitions() const
+            {
+                return columnDefinitions_;
             }
 
         private:

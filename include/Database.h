@@ -3,6 +3,7 @@
 
 #include "General.h"
 
+#include "BCryptHash.h"
 #include "Common.h"
 #include "Datafile.h"
 #include "Logger.h"
@@ -144,38 +145,56 @@ namespace PapierMache::DbStuff {
             std::vector<std::byte> out;
             for (Datafile &f : datafiles_) {
                 if (f.tableName() == "user") {
-                    toBytesDataFromString("USER_NAME=\"testuser\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.insert(261, out);
+                    Connection con = createConnection();
+                    Transaction t{transactionId_, con.id()};
+                    transactionList_.push_back(t);
+                    auto users = f.select(t.id(), std::vector<std::byte>{});
+                    // ユーザーテーブルがゼロ件であれば次のユーザーを追加する
+                    if (users.size() == 0) {
+                        std::string hash;
+                        toBCryptHash("adminpass", hash);
+                        toBytesDataFromString("USER_NAME=\"admin\"," + std::string("PASSWORD=\"") + hash + "\"," + "DATETIME=\"30827:12:31:23:59:59:999\"", out);
+                        f.insert(t.id(), out);
+                        hash = "";
+                        out.clear();
+                        toBCryptHash("user1pass", hash);
+                        toBytesDataFromString("USER_NAME=\"user1\"," + std::string("PASSWORD=\"") + hash + "\"," + "DATETIME=\"30827:12:31:23:59:59:999\"", out);
+                        f.insert(t.id(), out);
+                        hash = "";
+                    }
+                    f.commit(t.id());
+
                     out.clear();
-                    toBytesDataFromString("USER_NAME=\"testuser01234567\",PASSWORD=\"@012345678901234567890123456789_\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.insert(5, out);
-                    out.clear();
-                    toBytesDataFromString("USER_NAME=\"太郎\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.insert(261, out);
-                    out.clear();
-                    f.commit(5);
-                    f.commit(261);
-                    toBytesDataFromString("USER_NAME=\"花子\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.insert(1280, out);
-                    out.clear();
-                    toBytesDataFromString("USER_NAME=\"ichiro\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.insert(1280, out);
-                    out.clear();
-                    f.commit(1280);
-                    std::vector<std::byte> where;
-                    toBytesDataFromString("USER_NAME=\"testuser\"", where);
-                    toBytesDataFromString("USER_NAME=\"testuser2\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.update(261, out, where);
-                    out.clear();
-                    toBytesDataFromString("USER_NAME=\"星\",DATETIME=\"30827:12:31:23:59:59:999\"", out);
-                    f.commit(261);
-                    where.clear();
-                    toBytesDataFromString("USER_NAME=\"太郎\"", where);
-                    f.update(5, out, where);
-                    // f.commit(261);
-                    f.commit(5);
-                    where.clear();
-                    out.clear();
+                    Transaction t1{transactionId_, con.id()};
+                    transactionList_.push_back(t1);
+                    users = f.select(t1.id(), std::vector<std::byte>{});
+                    DB_LOG << "users.size(): " << users.size();
+                    for (const auto &e : users) {
+                        User u{};
+                        std::ostringstream oss{""};
+                        for (const std::byte b : e.at("user_name")) {
+                            if (static_cast<unsigned char>(b) != 0) {
+                                oss << static_cast<char>(b);
+                            }
+                        }
+                        u.setUserName(oss.str());
+                        oss.str("");
+                        for (const std::byte b : e.at("password")) {
+                            oss << static_cast<char>(b);
+                        }
+                        u.setPassword(oss.str());
+                        users_.push_back(u);
+                    }
+                    f.commit(t1.id());
+
+                    auto result = std::remove_if(connectionList_.begin(), connectionList_.end(),
+                                                 [connectionId = con.id()](Connection c) { return c.id() == connectionId; });
+                    if (result == connectionList_.end()) {
+                        throw std::runtime_error{"cannot find connection. should not reach here." + FILE_INFO};
+                    }
+                    connectionList_.erase(result, connectionList_.end());
+                    dataStreams_.erase(con.id());
+                    transactionList_.clear();
                 }
             }
 
@@ -300,6 +319,7 @@ namespace PapierMache::DbStuff {
                 }
                 connectionList_.erase(result, connectionList_.end());
                 dataStreams_.erase(connectionId);
+                connectedUsers_.erase(connectionId);
             } // Scoped Lock end
 
             // このコネクションを処理しているスレッドに通知する
@@ -347,37 +367,7 @@ namespace PapierMache::DbStuff {
 
             ~Transaction()
             {
-                DB_LOG << " ~Transaction() BEFORE" << FILE_INFO;
-                for (const auto &e : toCommit_) {
-                    DB_LOG << e.first << FILE_INFO;
-                    std::ostringstream oss{""};
-                    for (const auto &v : e.second) {
-                        for (const std::byte b : v) {
-                            oss << static_cast<char>(b);
-                        }
-                    }
-                    DB_LOG << oss.str() << FILE_INFO;
-                }
-                DB_LOG << " ~Transaction() AFTER" << FILE_INFO;
-            }
-
-            void commit()
-            {
-                // TODO:
-            }
-
-            void rollback()
-            {
-                toCommit_.clear();
-            }
-
-            void addToCommit(const std::string tableName, const std::vector<std::byte> &bytes)
-            {
-                if (toCommit_.find(tableName) == toCommit_.end()) {
-                    std::vector<std::vector<std::byte>> vec{};
-                    toCommit_.insert(std::make_pair(tableName, vec));
-                }
-                toCommit_.at(tableName).push_back(bytes);
+                DB_LOG << " ~Transaction()" << FILE_INFO;
             }
 
             const short id() const
@@ -391,10 +381,8 @@ namespace PapierMache::DbStuff {
             }
 
         private:
-            const short id_;
-            const std::string connectionId_;
-            // key: テーブル名, value: コミット予定の値のベクタ
-            std::map<std::string, std::vector<std::vector<std::byte>>> toCommit_;
+            short id_;
+            std::string connectionId_;
         };
 
         class Table {
@@ -455,6 +443,18 @@ namespace PapierMache::DbStuff {
             // key:行番号, value: トランザクションによって変更対象になっていればそのトランザクションのid,それ以外は負の値
             std::map<short, short> isTarget_;
             // std::mutex mt_;
+        };
+
+        class User {
+        public:
+            const std::string userName() const { return userName_; }
+            const std::string password() const { return password_; }
+            void setUserName(const std::string userName) { userName_ = userName; }
+            void setPassword(const std::string password) { password_ = password; }
+
+        private:
+            std::string userName_;
+            std::string password_;
         };
 
         bool swap(const std::string connectionId, const std::vector<std::byte> &data)
@@ -550,6 +550,10 @@ namespace PapierMache::DbStuff {
                 std::lock_guard<std::mutex> lock{mt_};
                 datafiles_[i].commit(id);
             }
+            std::lock_guard<std::mutex> lock{mt_};
+            auto it = std::remove_if(transactionList_.begin(), transactionList_.end(),
+                                     [tId = id](Transaction &t) { return t.id() == tId; });
+            transactionList_.erase(it, transactionList_.end());
         }
 
         void rollbackTransaction(const TRANSACTION_ID id)
@@ -558,6 +562,10 @@ namespace PapierMache::DbStuff {
                 std::lock_guard<std::mutex> lock{mt_};
                 datafiles_[i].rollback(id);
             }
+            std::lock_guard<std::mutex> lock{mt_};
+            auto it = std::remove_if(transactionList_.begin(), transactionList_.end(),
+                                     [tId = id](Transaction &t) { return t.id() == tId; });
+            transactionList_.erase(it, transactionList_.end());
         }
 
         void toBytesDataFromString(const std::string &s, std::vector<std::byte> &out)
@@ -716,7 +724,102 @@ namespace PapierMache::DbStuff {
                         try {
                             DB_LOG << "connection id: " << id << " is processing." << FILE_INFO;
                             getData(id, data);
-                            // 最初の要求はトランザクションの開始であること
+
+                            // 最初の要求はユーザーのセットであること
+                            bool setUserOperation = false;
+                            { // Scoped Lock start
+                                std::lock_guard<std::mutex> lock{mt_};
+                                if (connectedUsers_.find(id) == connectedUsers_.end()) {
+                                    setUserOperation = true;
+                                }
+                            } // Scoped Lock end
+                            if (setUserOperation) {
+                                // ユーザーの設定
+                                std::ostringstream oss{""};
+                                size_t i = 0;
+                                for (i = 0; i < data.size() && i < 7; ++i) {
+                                    oss << static_cast<char>(data[i]);
+                                }
+                                if (toLower(oss.str()) != "please:") {
+                                    toBytesDataFromString("parse error.", response);
+                                    setData(id, std::cref(response));
+                                    toNotify(id);
+                                    continue;
+                                }
+                                oss.str("");
+                                for (; i < data.size() && i < 7 + 4; ++i) {
+                                    oss << static_cast<char>(data[i]);
+                                }
+                                if (toLower(oss.str()) != "user") {
+                                    toBytesDataFromString("operation PLEASE:USER is not done.", response);
+                                    setData(id, std::cref(response));
+                                    toNotify(id);
+                                    continue;
+                                }
+                                oss.str("");
+                                std::string userName;
+                                std::string password;
+                                // iを空白文字が終わるまで進める
+                                for (; i < data.size(); ++i) {
+                                    if (static_cast<char>(data[i]) != ' ') {
+                                        break;
+                                    }
+                                }
+                                for (; i < data.size(); ++i) {
+                                    if (static_cast<char>(data[i]) != ' ') {
+                                        oss << static_cast<char>(data[i]);
+                                    }
+                                    else {
+                                        break;
+                                    }
+                                }
+                                userName = oss.str();
+                                oss.str("");
+                                // iを空白文字が終わるまで進める
+                                for (; i < data.size(); ++i) {
+                                    if (static_cast<char>(data[i]) != ' ') {
+                                        break;
+                                    }
+                                }
+                                for (; i < data.size(); ++i) {
+                                    if (static_cast<char>(data[i]) != ' ') {
+                                        oss << static_cast<char>(data[i]);
+                                    }
+                                    else {
+                                        break;
+                                    }
+                                }
+                                password = oss.str();
+                                bool isSuccess = false;
+                                for (const User &u : users_) {
+                                    DB_LOG << "u.userName(): " << u.userName();
+                                    if (u.userName() == userName) {
+                                        std::string hash;
+                                        toBCryptHash(password, hash);
+                                        if (u.password() == hash) {
+                                            { // Scoped Lock start
+                                                std::lock_guard<std::mutex> lock{mt_};
+                                                connectedUsers_.insert(std::make_pair(id, userName));
+                                            } // Scoped Lock end
+                                            DB_LOG << "User: " << userName << " authentication is success." << FILE_INFO;
+                                            toBytesDataFromString("User authentication is success.", response);
+                                            setData(id, std::cref(response));
+                                            toNotify(id);
+                                            isSuccess = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!isSuccess) {
+                                    toBytesDataFromString("User authentication is failed.", response);
+                                    setData(id, std::cref(response));
+                                    toNotify(id);
+                                    continue;
+                                }
+                            }
+                            // ユーザーが既に設定されていれば以下で処理継続
+
+                            // ユーザーがセットされてから最初の要求はトランザクションの開始であること
                             // 続く要求はこのコネクションのユーザーに許可された処理であること
                             // トランザクションがない状態で他の要求が来た場合はエラー
                             // またトランザクションがある状態でトランザクションの要求が来た場合もエラーとする
@@ -830,6 +933,9 @@ namespace PapierMache::DbStuff {
                             else if (operationName == "rollback") {
                                 rollbackTransaction(getTransactionId(id));
                             }
+                            else if (operationName == "user") {
+                                throw DatabaseException{"operation PLEASE:USER is already done."};
+                            }
                             else {
                                 throw DatabaseException{"unknown operation name: " + operationName};
                             }
@@ -916,6 +1022,9 @@ namespace PapierMache::DbStuff {
         std::vector<Connection> connectionList_;
         std::vector<Transaction> transactionList_;
         std::vector<Table> tableList_;
+        std::vector<User> users_;
+        // key: ConnectionのId, value: ユーザー名
+        std::map<std::string, std::string> connectedUsers_;
         // key: ConnectionのId, value: 送受信データ
         std::map<std::string, DataStream> dataStreams_;
 
@@ -992,20 +1101,18 @@ namespace PapierMache::DbStuff {
         }
 
         // 引数のクエリをコネクションを通じてデータベースに送る
-        // ユーザーの新規作成:
-        // PLEASE:NEWUSER user="userName",password="password"
+        // ユーザーの設定
+        // PLEASE:USER userName password
         // このコネクションにおけるトランザクションを開始する:
         // PLEASE:TRANSACTION
         // テーブルへのselect ()内が照会する列
-        // PLEASE:SELECT "tableName" (key1="value1",key2="value2"...)
+        // PLEASE:SELECT tableName (key1="value1",key2="value2"...)
         // テーブルへのinsert ()内が登録内容:
-        // PLEASE:INSERT "tableName" (key1="value1",key2="value2"...)
+        // PLEASE:INSERT tableName (key1="value1",key2="value2"...)
         // テーブルへのupdate 前半の()内が更新内容 後半の()内が更新する列
-        // PLEASE:UPDATE "tableName" (key1="value1",key2="value2"...) (key1="value1",key2="value2"...)
+        // PLEASE:UPDATE tableName (key1="value1",key2="value2"...) (key1="value1",key2="value2"...)
         // テーブルへのdelete ()内が削除する列
-        // PLEASE:DELETE "tableName" (key1="value1",key2="value2"...)
-        // テーブルへのselect for update ()内がロックする列
-        // PLEASE:SELECT_FOR_UPDATE "tableName" (key1="value1",key2="value2"...)
+        // PLEASE:DELETE tableName (key1="value1",key2="value2"...)
         // トランザクションをコミットする
         // PLEASE:COMMIT
         // トランザクションをロールバックする
