@@ -27,6 +27,71 @@
 
 namespace PapierMache::DbStuff {
 
+    // valueTの最大値 - 1までのidを生成して返すジェネレータ
+    template <typename valueT>
+    class IdGenerator {
+    public:
+        IdGenerator(valueT initialValue, bool reuseMode = false)
+            : initialValue_{initialValue},
+              v_{initialValue},
+              reuseMode_{reuseMode} {}
+
+        // コピー禁止
+        IdGenerator(const IdGenerator &) = delete;
+        IdGenerator &operator=(const IdGenerator &) = delete;
+        // ムーブ禁止
+        IdGenerator(IdGenerator &&) = delete;
+        IdGenerator &operator=(IdGenerator &&) = delete;
+
+        bool isLimits(const valueT v) const
+        {
+#pragma push_macro("max")
+#undef max
+            if (std::numeric_limits<valueT>::max() == v) {
+#pragma pop_macro("max")
+                return true;
+            }
+            return false;
+        }
+
+        valueT getId()
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            if (!reuseMode_) {
+                if (isLimits(v_)) {
+                    std::runtime_error{"all id value is used."};
+                }
+                return v_++;
+            }
+            if (isLimits(v_)) {
+                v_ = initialValue_;
+            }
+            for (; !isLimits(v_); ++v_) {
+                if (used_.find(v_) == used_.end()) {
+                    // これは現在利用中ではない値なのでOK
+                    valueT save = v_;
+                    used_.insert(std::make_pair(v_++, ' '));
+                    return save;
+                }
+            }
+            std::runtime_error{"all id value is used."};
+        }
+
+        void release(valueT id)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            used_.erase(id);
+        }
+
+    private:
+        valueT initialValue_;
+        valueT v_;
+        // 使用した値を再利用する場合はtrue
+        const bool reuseMode_;
+        std::map<valueT, char> used_;
+        std::mutex mt_;
+    };
+
     class Database;
 
     class Connection {
@@ -102,8 +167,7 @@ namespace PapierMache::DbStuff {
         using SessionCondition = std::tuple<std::string, std::mutex, std::condition_variable, bool>;
 
         Database()
-            : transactionId_{0},
-              tableId_{0},
+            : tIdGenerator_{0, true},
               isRequiredConnection_{false},
               isStarted_{false},
               toBeStopped_{false}
@@ -146,7 +210,7 @@ namespace PapierMache::DbStuff {
             for (Datafile &f : datafiles_) {
                 if (f.tableName() == "user") {
                     Connection con = createConnection();
-                    Transaction t{transactionId_, con.id()};
+                    Transaction t{tIdGenerator_.getId(), con.id()};
                     transactionList_.push_back(t);
                     auto users = f.select(t.id(), std::vector<std::byte>{});
                     // ユーザーテーブルがゼロ件であれば次のユーザーを追加する
@@ -165,7 +229,7 @@ namespace PapierMache::DbStuff {
                     f.commit(t.id());
 
                     out.clear();
-                    Transaction t1{transactionId_, con.id()};
+                    Transaction t1{tIdGenerator_.getId(), con.id()};
                     transactionList_.push_back(t1);
                     users = f.select(t1.id(), std::vector<std::byte>{});
                     DB_LOG << "users.size(): " << users.size();
@@ -509,7 +573,7 @@ namespace PapierMache::DbStuff {
         bool addTransaction(const std::string connectionId)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            Transaction t{transactionId_++, connectionId};
+            Transaction t{tIdGenerator_.getId(), connectionId};
             transactionList_.push_back(t);
             return true;
         }
@@ -1016,8 +1080,7 @@ namespace PapierMache::DbStuff {
             }
         }
 
-        TRANSACTION_ID transactionId_;
-        short tableId_;
+        IdGenerator<TRANSACTION_ID> tIdGenerator_;
         std::vector<Datafile> datafiles_;
         std::vector<Connection> connectionList_;
         std::vector<Transaction> transactionList_;
