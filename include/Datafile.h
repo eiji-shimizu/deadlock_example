@@ -45,6 +45,7 @@ namespace PapierMache::DbStuff {
         Datafile(const std::string dataFileName, const std::map<std::string, std::string> &tableInfo)
             : tableName_{toLower(dataFileName)},
               temp_{},
+              toTerminateList_{},
               pMt_{new std::mutex},
               pControlMt_{new std::mutex},
               pCond_{new std::condition_variable},
@@ -148,6 +149,7 @@ namespace PapierMache::DbStuff {
             : tableName_{std::move(rhs.tableName_)},
               tableInfo_{std::move(rhs.tableInfo_)},
               temp_{std::move(rhs.temp_)},
+              toTerminateList_{std::move(rhs.toTerminateList_)},
               pMt_{std::move(rhs.pMt_)},
               pControlMt_{std::move(rhs.pControlMt_)},
               pCond_{std::move(rhs.pCond_)},
@@ -247,9 +249,17 @@ namespace PapierMache::DbStuff {
                         DB_LOG << "transactionId: " << transactionId << FILE_INFO;
                         if (s >= 0 && s != transactionId) {
                             while (true) {
-                                DB_LOG << "Datafile::update() wait start." << FILE_INFO;
-                                pCond_->wait(lock);
-                                DB_LOG << "Datafile::update() wait end." << FILE_INFO;
+                                if (std::find(toTerminateList_.begin(), toTerminateList_.end(), transactionId) == toTerminateList_.end()) {
+                                    DB_LOG << "Datafile::update() wait start." << FILE_INFO;
+                                    pCond_->wait(lock);
+                                    DB_LOG << "Datafile::update() wait end." << FILE_INFO;
+                                }
+                                else {
+                                    std::lock_guard<std::mutex> lk{*pMt_};
+                                    auto result = std::remove(toTerminateList_.begin(), toTerminateList_.end(), transactionId);
+                                    toTerminateList_.erase(result, toTerminateList_.end());
+                                    return false;
+                                }
 
                                 // 再びこの行のトランザクションの状態を確認する
                                 LARGE_INTEGER li;
@@ -504,31 +514,50 @@ namespace PapierMache::DbStuff {
             return result;
         }
 
+        bool setToTerminate(const TRANSACTION_ID transactionId)
+        {
+            { // Scoped Lock start
+                std::lock_guard<std::mutex> lock{*pMt_};
+                std::lock_guard<std::mutex> lockControl{*pControlMt_};
+                if (std::find(toTerminateList_.begin(), toTerminateList_.end(), transactionId) == toTerminateList_.end()) {
+                    toTerminateList_.push_back(transactionId);
+                }
+            } //  Scoped Lock end
+            rollback(transactionId);
+            return true;
+        }
+
         bool commit(const TRANSACTION_ID transactionId)
         {
-            std::lock_guard<std::mutex> lock{*pMt_};
-            for (TemporaryData &td : temp_) {
-                if (td.transactionId() == transactionId) {
-                    td.setToCommit();
+            { // Scoped Lock start
+                std::lock_guard<std::mutex> lock{*pMt_};
+                for (TemporaryData &td : temp_) {
+                    if (td.transactionId() == transactionId) {
+                        td.setToCommit();
+                    }
                 }
-            }
-            std::lock_guard<std::mutex> lockControl{*pControlMt_};
-            std::lock_guard<std::shared_mutex> lockData{*pDataSharedMt_};
-            write(transactionId);
+                std::lock_guard<std::mutex> lockControl{*pControlMt_};
+                std::lock_guard<std::shared_mutex> lockData{*pDataSharedMt_};
+                write(transactionId);
+            } // Scoped Lock end
+            pCond_->notify_all();
             return true;
         }
 
         bool rollback(const TRANSACTION_ID transactionId)
         {
-            std::lock_guard<std::mutex> lock{*pMt_};
-            for (TemporaryData &td : temp_) {
-                if (td.transactionId() == transactionId) {
-                    td.setToCommit(false);
+            { // Scoped Lock start
+                std::lock_guard<std::mutex> lock{*pMt_};
+                for (TemporaryData &td : temp_) {
+                    if (td.transactionId() == transactionId) {
+                        td.setToCommit(false);
+                    }
                 }
-            }
-            std::lock_guard<std::mutex> lockControl{*pControlMt_};
-            std::lock_guard<std::shared_mutex> lockData{*pDataSharedMt_};
-            write(transactionId);
+                std::lock_guard<std::mutex> lockControl{*pControlMt_};
+                std::lock_guard<std::shared_mutex> lockData{*pDataSharedMt_};
+                write(transactionId);
+            } // Scoped Lock end
+            pCond_->notify_all();
             return true;
         }
 
@@ -1097,7 +1126,7 @@ namespace PapierMache::DbStuff {
                             throw std::runtime_error{"WriteFile() : Error: number of bytes to write != number of bytes that were written" + FILE_INFO};
                         }
                         else {
-                            DB_LOG << "succeed. transactionId: " << id << FILE_INFO;
+                            DB_LOG << "ROLLBACK succeed. transactionId: " << id << FILE_INFO;
                         }
                     }
                 }
@@ -1147,6 +1176,8 @@ namespace PapierMache::DbStuff {
         std::string tableName_;
         TableInfo tableInfo_;
         std::vector<TemporaryData> temp_;
+        // 何らかの原因で終了すべきトランザクションのリスト
+        std::vector<TRANSACTION_ID> toTerminateList_;
         std::unique_ptr<std::mutex> pMt_;
         // 制御情報用のミューテックス
         std::unique_ptr<std::mutex> pControlMt_;

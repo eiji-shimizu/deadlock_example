@@ -125,8 +125,24 @@ int main()
         testFunc(con4, "con4", "please:update User    (   USER_NAME=\"testuser8787\" , DATETIME=\"30827:12:31:23:59:59:999\")(   USER_NAME=\"testuser999\" , DATETIME=\"30827:12:31:23:59:59:999\")");
         // testFunc(con4, "con4", "PLEASE:ROLLBACK");
         testFunc(con4, "con4", "PLEASE:commit");
-        //con4.close();
-        // テストコードここまで
+
+        testFunc(con4, "con4", "PLEASE:TRANSACTION");
+        testFunc(con4, "con4", "please:insert User    (   USER_NAME=\"testuser10\" , DATETIME=\"30827:12:31:23:59:59:999\")");
+        testFunc(con4, "con4", "PLEASE:commit");
+
+        PapierMache::DbStuff::Connection con5 = db.getConnection();
+        testFunc(con5, "con5", "PLEASE:USER admin adminpass");
+        testFunc(con5, "con5", "PLEASE:TRANSACTION");
+
+        testFunc(con4, "con4", "PLEASE:TRANSACTION");
+        testFunc(con4, "con4", "please:update User    (   USER_NAME=\"testuser777\" , DATETIME=\"30827:12:31:23:59:59:999\")(   USER_NAME=\"testuser10\" , DATETIME=\"30827:12:31:23:59:59:999\")");
+        con4.terminate();
+        testFunc(con5, "con5", "please:update User    (   USER_NAME=\"testuser555\" , DATETIME=\"30827:12:31:23:59:59:999\")(   USER_NAME=\"testuser10\" , DATETIME=\"30827:12:31:23:59:59:999\")");
+
+        //testFunc(con4, "con4", "PLEASE:commit");
+        testFunc(con5, "con5", "PLEASE:commit");
+        // con4.close();
+        //  テストコードここまで
 
         LOG << "------------------------------";
 

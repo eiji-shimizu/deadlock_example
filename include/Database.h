@@ -122,6 +122,8 @@ namespace PapierMache::DbStuff {
         bool request();
         // 処理結果を待つ
         int wait();
+        // コネクションが開始したトランザクションを停止する
+        bool terminate();
         // コネクションをクローズする
         bool close();
         // このコネクションがクローズしていればtrue
@@ -377,6 +379,26 @@ namespace PapierMache::DbStuff {
             }
             DEBUG_LOG << connectionId << " ------------------------------wait 4." << FILE_INFO;
             return 0;
+        }
+
+        bool terminate(const std::string connectionId)
+        {
+            std::lock_guard<std::mutex> lock{mt_};
+            TRANSACTION_ID id = -1;
+            for (const Transaction &t : transactionList_) {
+                if (t.connectionId() == connectionId) {
+                    id = t.id();
+                }
+            }
+            for (int i = 0; i < datafiles_.size(); ++i) {
+                if (id != -1) {
+                    datafiles_[i].setToTerminate(id);
+                }
+            }
+            auto it = std::remove_if(transactionList_.begin(), transactionList_.end(),
+                                     [tId = id](Transaction &t) { return t.id() == tId; });
+            transactionList_.erase(it, transactionList_.end());
+            return true;
         }
 
         bool close(const std::string connectionId)
@@ -935,6 +957,10 @@ namespace PapierMache::DbStuff {
                                 trimParentheses(v);
                                 trimParentheses(where);
                                 bool result = getDatafile(tableName).update(getTransactionId(id), v, where);
+                                if (!result) {
+                                    rollbackTransaction(getTransactionId(id));
+                                    throw DatabaseException{"transaction is terminated."};
+                                }
                             }
                             else if (operationName == "delete") {
                             }
@@ -1078,6 +1104,11 @@ namespace PapierMache::DbStuff {
     inline int Connection::wait()
     {
         return pDb_->wait(id_);
+    }
+
+    inline bool Connection::terminate()
+    {
+        return pDb_->terminate(id_);
     }
 
     inline bool Connection::close()
