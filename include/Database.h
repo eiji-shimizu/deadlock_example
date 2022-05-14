@@ -59,7 +59,7 @@ namespace PapierMache::DbStuff {
             std::lock_guard<std::mutex> lock{mt_};
             if (!reuseMode_) {
                 if (isLimits(v_)) {
-                    std::runtime_error{"all id value is used."};
+                    throw std::runtime_error{"all id value is used."};
                 }
                 return v_++;
             }
@@ -74,7 +74,7 @@ namespace PapierMache::DbStuff {
                     return save;
                 }
             }
-            std::runtime_error{"all id value is used."};
+            throw std::runtime_error{"all id value is used."};
         }
 
         void release(valueT id)
@@ -192,6 +192,15 @@ namespace PapierMache::DbStuff {
                     thread_.join();
                 }
                 DB_LOG << "thread_.join() AFTER" << FILE_INFO;
+                // 全てのコネクションをクローズする
+                std::vector<std::string> connectionIds;
+                for (Connection &c : connectionList_) {
+                    connectionIds.push_back(c.id());
+                }
+                for (const std::string &cId : connectionIds) {
+                    close(cId);
+                }
+                DB_LOG << "all connection closed." << FILE_INFO;
             })
         }
 
@@ -378,7 +387,6 @@ namespace PapierMache::DbStuff {
                                              [connectionId](Connection c) { return c.id() == connectionId; });
 
                 if (result == connectionList_.end()) {
-                    LOG << "close1: " << connectionId << FILE_INFO;
                     return false;
                 }
                 connectionList_.erase(result, connectionList_.end());
@@ -399,7 +407,6 @@ namespace PapierMache::DbStuff {
                 }
             } // Scoped Lock end
             if (i == conditions_.size()) {
-                LOG << "close2: " << connectionId << FILE_INFO;
                 return false;
             }
             { // Scoped Lock start
@@ -407,7 +414,7 @@ namespace PapierMache::DbStuff {
                 std::get<3>(conditions_.at(i)) = true;
             } // Scoped Lock end
             std::get<2>(conditions_.at(i)).notify_one();
-            LOG << "close3: " << connectionId << FILE_INFO;
+            LOG << "connection id: " << connectionId << " is closed." << FILE_INFO;
             return true;
         }
 
@@ -447,66 +454,6 @@ namespace PapierMache::DbStuff {
         private:
             short id_;
             std::string connectionId_;
-        };
-
-        class Table {
-        public:
-            Table(const short id,
-                  const std::string name)
-                : id_{id},
-                  name_{name}
-            {
-            }
-
-            ~Table()
-            {
-                DB_LOG << " ~Table()" << FILE_INFO;
-            }
-
-            bool setTarget(const short rowNo, const TRANSACTION_ID transactionId)
-            {
-                // std::lock_guard<std::mutex> lock{mt_};
-                if (isTarget_.find(rowNo) != isTarget_.end()) {
-                    if (isTarget_.at(rowNo) >= 0) {
-                        return false;
-                    }
-                    isTarget_.at(rowNo) = transactionId;
-                    return true;
-                }
-                isTarget_.insert(std::make_pair(rowNo, transactionId));
-                return true;
-            }
-
-            bool clearTarget(const short rowNo, const TRANSACTION_ID transactionId)
-            {
-                // std::lock_guard<std::mutex> lock{mt_};
-                if (isTarget_.find(rowNo) != isTarget_.end()) {
-                    if (isTarget_.at(rowNo) != transactionId) {
-                        return false;
-                    }
-                    isTarget_.at(rowNo) = -1;
-                    return true;
-                }
-                return false;
-            }
-
-            bool isTarget(const short rowNo)
-            {
-                // std::lock_guard<std::mutex> lock{mt_};
-                return isTarget_.find(rowNo) != isTarget_.end();
-            }
-
-            const std::string name() const
-            {
-                return name_;
-            };
-
-        private:
-            const short id_;
-            const std::string name_;
-            // key:行番号, value: トランザクションによって変更対象になっていればそのトランザクションのid,それ以外は負の値
-            std::map<short, short> isTarget_;
-            // std::mutex mt_;
         };
 
         class User {
@@ -1084,7 +1031,6 @@ namespace PapierMache::DbStuff {
         std::vector<Datafile> datafiles_;
         std::vector<Connection> connectionList_;
         std::vector<Transaction> transactionList_;
-        std::vector<Table> tableList_;
         std::vector<User> users_;
         // key: ConnectionのId, value: ユーザー名
         std::map<std::string, std::string> connectedUsers_;
