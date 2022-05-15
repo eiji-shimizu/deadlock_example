@@ -477,6 +477,55 @@ namespace PapierMache::DbStuff {
             std::string password_;
         };
 
+        class Result {
+        public:
+            Result(const char flag,
+                   const std::string tableName,
+                   std::string tableInfo,
+                   std::vector<std::map<std::string, std::vector<std::byte>>> data)
+                : flag_{flag},
+                  tableName_{tableName},
+                  tableInfo_{tableInfo},
+                  data_{data}
+            {
+            }
+
+            std::vector<std::byte> toBytes() const
+            {
+                std::vector<std::byte> bytes;
+                bytes.push_back(static_cast<std::byte>(flag_));
+                bytes.push_back(static_cast<std::byte>(' '));
+                for (const char c : tableName_) {
+                    bytes.push_back(static_cast<std::byte>(c));
+                }
+                bytes.push_back(static_cast<std::byte>(' '));
+                for (const char c : tableInfo_) {
+                    bytes.push_back(static_cast<std::byte>(c));
+                }
+                bytes.push_back(static_cast<std::byte>(' '));
+                for (const auto &e : data_) {
+                    for (const auto &p : e) {
+                        for (const char c : p.first) {
+                            bytes.push_back(static_cast<std::byte>(c));
+                        }
+                        bytes.push_back(static_cast<std::byte>('='));
+                        for (const std::byte b : p.second) {
+                            bytes.push_back(b);
+                        }
+                    }
+                }
+                return bytes;
+            }
+
+        private:
+            // 成功であれば0
+            char flag_;
+            std::string tableName_;
+            // 列名=データサイズ,列名=データサイズ,列名=データサイズ...
+            std::string tableInfo_;
+            std::vector<std::map<std::string, std::vector<std::byte>>> data_;
+        };
+
         bool swap(const std::string connectionId, const std::vector<std::byte> &data)
         {
             DataStream temp{data};
@@ -955,6 +1004,15 @@ namespace PapierMache::DbStuff {
                                 if (!getDatafile(tableName).isPermitted(operationName, userName)) {
                                     throw DatabaseException{"operation: " + operationName + " to " + tableName + " is not permitted. user: " + userName};
                                 }
+                                std::vector<std::byte> where;
+                                for (; i < data.size(); ++i) {
+                                    where.push_back(data[i]);
+                                }
+                                trimParentheses(where);
+                                auto result = getDatafile(tableName).select(getTransactionId(id), where);
+                                std::string tableInfo = getDatafile(tableName).tableInfo();
+                                Result r{0, tableName, tableInfo, result};
+                                response = r.toBytes();
                             }
                             else if (operationName == "insert") {
                                 if (!getDatafile(tableName).isPermitted(operationName, userName)) {
@@ -1027,10 +1085,7 @@ namespace PapierMache::DbStuff {
                             continue;
                         }
 
-                        data.push_back(static_cast<std::byte>(' '));
-                        data.push_back(static_cast<std::byte>('O'));
-                        data.push_back(static_cast<std::byte>('K'));
-                        setData(id, std::cref(data));
+                        setData(id, std::cref(response));
                         toNotify(id);
                         DB_LOG << "notify to id: " << id << FILE_INFO;
                     }
@@ -1159,11 +1214,11 @@ namespace PapierMache::DbStuff {
     public:
         struct Result {
             const bool isSucceed;
-            std::map<std::string, std::string> rows;
+            std::vector<std::map<std::string, std::string>> rows;
             const std::string message;
 
-            Result(const bool b, std::map<std::string, std::string> m, const std::string s)
-                : isSucceed{b}, rows{m}, message{s}
+            Result(const bool b, std::vector<std::map<std::string, std::string>> v, const std::string s)
+                : isSucceed{b}, rows{v}, message{s}
             {
             }
         };
@@ -1193,7 +1248,7 @@ namespace PapierMache::DbStuff {
         Result sendQuery(std::string query)
         {
             std::string error = "";
-            std::map<std::string, std::string> rows;
+            std::vector<std::map<std::string, std::string>> rows;
             try {
                 std::vector<std::byte> data;
                 for (const char c : query) {
@@ -1236,12 +1291,127 @@ namespace PapierMache::DbStuff {
                     return Result{false, rows, error};
                 }
                 error = "";
+
+                bool b = false;
                 std::ostringstream oss{""};
-                for (const std::byte b : data) {
-                    oss << static_cast<char>(b);
+                auto it = data.begin();
+                for (; it != data.end(); ++it) {
+                    // 結果コード
+                    if (static_cast<char>(*it) == ' ') {
+                        // 次でこの空白は無関係のためインクリメントしてからbreak
+                        ++it;
+                        break;
+                    }
+                    if (static_cast<char>(*it) == 0) {
+                        b = true;
+                    }
+                    else {
+                        error = "operation failed";
+                    }
                 }
-                // TODO: 受信データをパースする
-                return Result{true, rows, oss.str()};
+                std::string tableName;
+                for (; it != data.end(); ++it) {
+                    // テーブル名
+                    if (static_cast<char>(*it) == ' ') {
+                        // 次でこの空白は無関係のためインクリメントしてからbreak
+                        ++it;
+                        break;
+                    }
+                    oss << static_cast<char>(*it);
+                }
+                tableName = oss.str();
+                oss.str("");
+                std::map<std::string, int> tableInfo;
+                bool sizeMode = false;
+                std::vector<std::byte> v;
+                for (; it != data.end(); ++it) {
+                    // 列情報
+                    if (static_cast<char>(*it) == ' ') {
+                        // 次でこの空白は無関係のためインクリメントしてからbreak
+                        ++it;
+                        break;
+                    }
+                    if (static_cast<char>(*it) == '=') {
+                        sizeMode = true;
+                        continue;
+                    }
+                    if (static_cast<char>(*it) == ',') {
+                        if (v.size() > 0) {
+                            std::string sizeStr;
+                            sizeStr.resize(v.size());
+                            for (int i = 0; i < sizeStr.length(); ++i) {
+                                sizeStr[i] = static_cast<char>(v[i]);
+                            }
+                            int size = std::stoi(sizeStr);
+                            v.clear();
+                            tableInfo.insert(std::make_pair(oss.str(), size));
+                            oss.str("");
+                        }
+                        sizeMode = false;
+                        continue;
+                    }
+                    if (sizeMode) {
+                        v.push_back(*it);
+                    }
+                    else {
+                        oss << static_cast<char>(*it);
+                    }
+                }
+                if (v.size() > 0) {
+                    std::string sizeStr;
+                    sizeStr.resize(v.size());
+                    for (int i = 0; i < sizeStr.length(); ++i) {
+                        sizeStr[i] = static_cast<char>(v[i]);
+                    }
+                    int size = std::stoi(sizeStr);
+                    v.clear();
+                    tableInfo.insert(std::make_pair(oss.str(), size));
+                    oss.str("");
+                }
+
+                bool valueMode = false;
+                int sizeCount = 0;
+                int colCount = 0;
+                std::string colName;
+                std::map<std::string, std::string> row;
+                for (; it != data.end(); ++it) {
+                    if (valueMode && sizeCount == 0) {
+                        row.insert(std::make_pair(colName, oss.str()));
+                        oss.str("");
+                        valueMode = false;
+                        if (++colCount == tableInfo.size()) {
+                            rows.push_back(row);
+                            row.clear();
+                            colCount = 0;
+                            sizeCount = 0;
+                        }
+                    }
+                    if (!valueMode && static_cast<char>(*it) == '=') {
+                        colName = oss.str();
+                        oss.str("");
+                        valueMode = true;
+                        sizeCount = tableInfo.at(colName);
+                    }
+                    else if (valueMode && sizeCount > 0) {
+                        oss << static_cast<char>(*it);
+                        --sizeCount;
+                    }
+                    else {
+                        oss << static_cast<char>(*it);
+                    }
+                }
+                if (valueMode && oss.str().length() > 0) {
+                    row.insert(std::make_pair(colName, oss.str()));
+                    oss.str("");
+                    valueMode = false;
+                    if (++colCount == tableInfo.size()) {
+                        rows.push_back(row);
+                        row.clear();
+                        colCount = 0;
+                        sizeCount = 0;
+                    }
+                }
+                return Result{true, rows, error};
             }
             catch (std::exception &e) {
                 if (error == "") {

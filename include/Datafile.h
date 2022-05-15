@@ -594,6 +594,24 @@ namespace PapierMache::DbStuff {
             return tableInfo_.isPermitted(operation, user);
         }
 
+        std::string tableInfo() const
+        {
+            std::ostringstream oss{""};
+            for (const auto &e : tableInfo_.columnDefinitions()) {
+                for (const char c : std::get<0>(e)) {
+                    oss << c;
+                }
+                oss << '=';
+                oss << std::to_string(std::get<2>(e));
+                oss << ',';
+            }
+            std::string result = oss.str();
+            if (result.length() > 1) {
+                result.erase(result.end() - 1);
+            }
+            return result;
+        }
+
     private:
         class TableInfo {
         public:

@@ -59,7 +59,7 @@ void testFunc0(PapierMache::DbStuff::Connection con, std::string name, std::stri
     }
 }
 
-void testFunc(PapierMache::DbStuff::Connection con, std::string name, std::string query)
+PapierMache::DbStuff::Driver::Result testFunc(PapierMache::DbStuff::Connection con, std::string name, std::string query)
 {
     PapierMache::DbStuff::Driver driver{con};
     const auto result = driver.sendQuery(query);
@@ -69,6 +69,7 @@ void testFunc(PapierMache::DbStuff::Connection con, std::string name, std::strin
     if (result.isSucceed) {
         LOG << result.message;
     }
+    return result;
 }
 
 int main()
@@ -154,6 +155,18 @@ int main()
         testFunc(con5, "con5", "PLEASE:TRANSACTION");
         testFunc(con5, "con5", "please:delete User    (   USER_NAME=\"testuser555\")");
         testFunc(con5, "con5", "PLEASE:commit");
+
+        PapierMache::DbStuff::Connection con6 = db.getConnection();
+        testFunc(con6, "con6", "PLEASE:USER admin adminpass");
+        testFunc(con6, "con6", "PLEASE:TRANSACTION");
+        const auto result = testFunc(con6, "con6", "please:select User ");
+        DB_LOG << "test result";
+        for (const auto e : result.rows) {
+            for (const auto p : e) {
+                DB_LOG << p.first << ", " << p.second;
+            }
+        }
+
         //  テストコードここまで
 
         LOG << "------------------------------";
