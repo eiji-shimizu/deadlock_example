@@ -72,7 +72,7 @@ namespace PapierMache::DbStuff {
                         users.push_back(oss.str());
                         oss.str("");
                     }
-                    m.insert(std::make_pair(e.first, users));
+                    m.insert(std::make_pair(toLower(e.first), users));
                 }
                 else if (e.first == "COLUMN_ORDER") {
                     int no = 0;
@@ -685,7 +685,7 @@ namespace PapierMache::DbStuff {
                         return true;
                     }
                 }
-                else if (colType == "int") {
+                else if (colType == "password") {
                     return lhs == rhs;
                 }
                 else if (colType == "datetime") {
@@ -874,6 +874,15 @@ namespace PapierMache::DbStuff {
             // valueを処理中の場合にtrue
             bool isValue = false;
             for (const std::byte b : vec) {
+                if (isValue) {
+                    if (tableInfo_.columnType(toLower(oss.str())) == "password") {
+                        if (value.size() != 32) {
+                            value.push_back(b);
+                            continue;
+                        }
+                    }
+                }
+
                 if (isKey) {
                     char c = static_cast<char>(b);
                     // keyは英数字とアンダーバーのみ可 イコールは以下で処理

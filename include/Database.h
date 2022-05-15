@@ -228,12 +228,12 @@ namespace PapierMache::DbStuff {
                     if (users.size() == 0) {
                         std::string hash;
                         toBCryptHash("adminpass", hash);
-                        toBytesDataFromString("USER_NAME=\"admin\"," + std::string("PASSWORD=\"") + hash + "\"," + "DATETIME=\"30827:12:31:23:59:59:999\"", out);
+                        toBytesDataFromString("USER_NAME=\"admin\"," + std::string("PASSWORD=") + hash + "," + "DATETIME=\"30827:12:31:23:59:59:999\"", out);
                         f.insert(t.id(), out);
                         hash = "";
                         out.clear();
                         toBCryptHash("user1pass", hash);
-                        toBytesDataFromString("USER_NAME=\"user1\"," + std::string("PASSWORD=\"") + hash + "\"," + "DATETIME=\"30827:12:31:23:59:59:999\"", out);
+                        toBytesDataFromString("USER_NAME=\"user1\"," + std::string("PASSWORD=") + hash + "," + "DATETIME=\"30827:12:31:23:59:59:999\"", out);
                         f.insert(t.id(), out);
                         hash = "";
                     }
@@ -857,6 +857,11 @@ namespace PapierMache::DbStuff {
                                 }
                             }
                             // ユーザーが既に設定されていれば以下で処理継続
+                            std::string userName;
+                            { // Scoped Lock start
+                                std::lock_guard<std::mutex> lock{mt_};
+                                userName = connectedUsers_.at(id);
+                            } // Scoped Lock end
 
                             // ユーザーがセットされてから最初の要求はトランザクションの開始であること
                             // 続く要求はこのコネクションのユーザーに許可された処理であること
@@ -947,8 +952,14 @@ namespace PapierMache::DbStuff {
                                 }
                             }
                             if (operationName == "select") {
+                                if (!getDatafile(tableName).isPermitted(operationName, userName)) {
+                                    throw DatabaseException{"operation: " + operationName + " to " + tableName + " is not permitted. user: " + userName};
+                                }
                             }
                             else if (operationName == "insert") {
+                                if (!getDatafile(tableName).isPermitted(operationName, userName)) {
+                                    throw DatabaseException{"operation: " + operationName + " to " + tableName + " is not permitted. user: " + userName};
+                                }
                                 std::vector<std::byte> v;
                                 for (; i < data.size(); ++i) {
                                     v.push_back(data[i]);
@@ -957,6 +968,9 @@ namespace PapierMache::DbStuff {
                                 bool result = getDatafile(tableName).insert(getTransactionId(id), v);
                             }
                             else if (operationName == "update") {
+                                if (!getDatafile(tableName).isPermitted(operationName, userName)) {
+                                    throw DatabaseException{"operation: " + operationName + " to " + tableName + " is not permitted. user: " + userName};
+                                }
                                 std::vector<std::byte> v;
                                 std::vector<std::byte> where;
                                 separate(data, i, v, where);
@@ -969,6 +983,9 @@ namespace PapierMache::DbStuff {
                                 }
                             }
                             else if (operationName == "delete") {
+                                if (!getDatafile(tableName).isPermitted(operationName, userName)) {
+                                    throw DatabaseException{"operation: " + operationName + " to " + tableName + " is not permitted. user: " + userName};
+                                }
                             }
                             else if (operationName == "commit") {
                                 commitTransaction(getTransactionId(id));
