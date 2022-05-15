@@ -384,27 +384,14 @@ namespace PapierMache::DbStuff {
         bool terminate(const std::string connectionId)
         {
             std::lock_guard<std::mutex> lock{mt_};
-            TRANSACTION_ID id = -1;
-            for (const Transaction &t : transactionList_) {
-                if (t.connectionId() == connectionId) {
-                    id = t.id();
-                }
-            }
-            for (int i = 0; i < datafiles_.size(); ++i) {
-                if (id != -1) {
-                    datafiles_[i].setToTerminate(id);
-                }
-            }
-            auto it = std::remove_if(transactionList_.begin(), transactionList_.end(),
-                                     [tId = id](Transaction &t) { return t.id() == tId; });
-            transactionList_.erase(it, transactionList_.end());
-            return true;
+            return terminateImpl(connectionId);
         }
 
         bool close(const std::string connectionId)
         {
             { // Scoped Lock start
                 std::lock_guard<std::mutex> lock{mt_};
+                terminateImpl(connectionId);
                 auto result = std::remove_if(connectionList_.begin(), connectionList_.end(),
                                              [connectionId](Connection c) { return c.id() == connectionId; });
 
@@ -537,6 +524,25 @@ namespace PapierMache::DbStuff {
             }
             DB_LOG << connectionId << " notifyImpl: NG" << b << FILE_INFO;
             return false;
+        }
+
+        bool terminateImpl(const std::string connectionId)
+        {
+            TRANSACTION_ID id = -1;
+            for (const Transaction &t : transactionList_) {
+                if (t.connectionId() == connectionId) {
+                    id = t.id();
+                }
+            }
+            for (int i = 0; i < datafiles_.size(); ++i) {
+                if (id != -1) {
+                    datafiles_[i].setToTerminate(id);
+                }
+            }
+            auto it = std::remove_if(transactionList_.begin(), transactionList_.end(),
+                                     [tId = id](Transaction &t) { return t.id() == tId; });
+            transactionList_.erase(it, transactionList_.end());
+            return true;
         }
 
         bool addTransaction(const std::string connectionId)

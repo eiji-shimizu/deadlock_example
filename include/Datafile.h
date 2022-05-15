@@ -254,7 +254,7 @@ namespace PapierMache::DbStuff {
                                     pCond_->wait(lock);
                                     DB_LOG << "Datafile::update() wait end." << FILE_INFO;
                                 }
-                                else {
+                                if (std::find(toTerminateList_.begin(), toTerminateList_.end(), transactionId) != toTerminateList_.end()) {
                                     std::lock_guard<std::mutex> lk{*pMt_};
                                     auto result = std::remove(toTerminateList_.begin(), toTerminateList_.end(), transactionId);
                                     toTerminateList_.erase(result, toTerminateList_.end());
