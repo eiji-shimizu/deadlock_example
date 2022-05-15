@@ -143,6 +143,17 @@ int main()
         // testFunc(con4, "con4", "PLEASE:commit");
         testFunc(con5, "con5", "PLEASE:commit");
         // con4.close();
+        testFunc(con4, "con4", "PLEASE:TRANSACTION");
+        testFunc(con4, "con4", "please:delete User    (   USER_NAME=\"testuser8787\" , DATETIME=\"30827:12:31:23:59:59:999\")");
+        testFunc(con4, "con4", "PLEASE:commit");
+
+        testFunc(con4, "con4", "PLEASE:TRANSACTION");
+        testFunc(con4, "con4", "please:delete User    (   USER_NAME=\"testuser888\")");
+        testFunc(con4, "con4", "PLEASE:commit");
+
+        testFunc(con5, "con5", "PLEASE:TRANSACTION");
+        testFunc(con5, "con5", "please:delete User    (   USER_NAME=\"testuser555\")");
+        testFunc(con5, "con5", "PLEASE:commit");
         //  テストコードここまで
 
         LOG << "------------------------------";

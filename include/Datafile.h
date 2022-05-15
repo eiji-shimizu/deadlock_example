@@ -371,6 +371,14 @@ namespace PapierMache::DbStuff {
             return true;
         };
 
+        // この関数名はdeleteであるべきだがc++の予約語と重なるのでupdateとする
+        bool update(const TRANSACTION_ID transactionId,
+                    const std::vector<std::byte> &where)
+        {
+            DB_LOG << "delete operation";
+            return update(transactionId, std::vector<std::byte>{}, where);
+        }
+
         std::vector<std::map<std::string, std::vector<std::byte>>> select(const TRANSACTION_ID transactionId, const std::vector<std::byte> &where)
         {
             std::map<std::string, std::vector<std::byte>> mWhere = parseKeyValueVector(where);
@@ -1111,6 +1119,27 @@ namespace PapierMache::DbStuff {
                         }
                         else {
                             // 削除の場合
+                            LARGE_INTEGER li;
+                            li.QuadPart = td.position();
+                            bErrorFlag = SetFilePointerEx(getHandle(id), li, NULL, FILE_BEGIN);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"WriteFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                            }
+                            // 有効フラグを無効の状態にしてトランザクションIDを-1に戻す
+                            ControlData cd{1, -1};
+                            bErrorFlag = WriteFile(getHandle(id), &cd, sizeof(cd), &dwBytesWritten, NULL);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"WriteFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                            }
+                            else {
+                                if (dwBytesWritten != sizeof(cd)) {
+                                    throw std::runtime_error{"WriteFile() : Error: number of bytes to write != number of bytes that were written" + FILE_INFO};
+                                }
+                                else {
+                                    DB_LOG << "delete-----------------------" << FILE_INFO;
+                                    DB_LOG << "succeed. transactionId: " << id << FILE_INFO;
+                                }
+                            }
                         }
                     }
                     td.setToCommit(false);

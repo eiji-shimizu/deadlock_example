@@ -986,6 +986,16 @@ namespace PapierMache::DbStuff {
                                 if (!getDatafile(tableName).isPermitted(operationName, userName)) {
                                     throw DatabaseException{"operation: " + operationName + " to " + tableName + " is not permitted. user: " + userName};
                                 }
+                                std::vector<std::byte> where;
+                                for (; i < data.size(); ++i) {
+                                    where.push_back(data[i]);
+                                }
+                                trimParentheses(where);
+                                bool result = getDatafile(tableName).update(getTransactionId(id), where);
+                                if (!result) {
+                                    rollbackTransaction(getTransactionId(id));
+                                    throw DatabaseException{"transaction is terminated."};
+                                }
                             }
                             else if (operationName == "commit") {
                                 commitTransaction(getTransactionId(id));
