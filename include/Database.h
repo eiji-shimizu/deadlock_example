@@ -481,13 +481,30 @@ namespace PapierMache::DbStuff {
         public:
             Result(const char flag,
                    const std::string tableName,
-                   std::string tableInfo,
-                   std::vector<std::map<std::string, std::vector<std::byte>>> data)
+                   const std::string tableInfo,
+                   const std::vector<std::map<std::string, std::vector<std::byte>>> data)
                 : flag_{flag},
                   tableName_{tableName},
                   tableInfo_{tableInfo},
                   data_{data}
             {
+            }
+
+            Result(const char flag,
+                   const std::string tableName,
+                   const std::string tableInfo,
+                   const std::string message)
+                : flag_{flag},
+                  tableName_{tableName},
+                  tableInfo_{tableInfo}
+            {
+                std::vector<std::byte> v;
+                for (const char c : message) {
+                    v.push_back(static_cast<std::byte>(c));
+                }
+                std::map<std::string, std::vector<std::byte>> m;
+                m.insert(std::make_pair("message", v));
+                data_.push_back(m);
             }
 
             std::vector<std::byte> toBytes() const
@@ -832,7 +849,8 @@ namespace PapierMache::DbStuff {
                                     oss << static_cast<char>(data[i]);
                                 }
                                 if (toLower(oss.str()) != "please:") {
-                                    toBytesDataFromString("parse error.", response);
+                                    Result r{-1, "", "", "parse error."};
+                                    response = r.toBytes();
                                     setData(id, std::cref(response));
                                     toNotify(id);
                                     continue;
@@ -842,7 +860,8 @@ namespace PapierMache::DbStuff {
                                     oss << static_cast<char>(data[i]);
                                 }
                                 if (toLower(oss.str()) != "user") {
-                                    toBytesDataFromString("operation PLEASE:USER is not done.", response);
+                                    Result r{-1, "", "", "operation PLEASE:USER is not done."};
+                                    response = r.toBytes();
                                     setData(id, std::cref(response));
                                     toNotify(id);
                                     continue;
@@ -893,7 +912,8 @@ namespace PapierMache::DbStuff {
                                                 connectedUsers_.insert(std::make_pair(id, userName));
                                             } // Scoped Lock end
                                             DB_LOG << "User: " << userName << " authentication is success." << FILE_INFO;
-                                            toBytesDataFromString("User authentication is success.", response);
+                                            Result r{1, "", "", "User authentication is success."};
+                                            response = r.toBytes();
                                             setData(id, std::cref(response));
                                             toNotify(id);
                                             isSuccess = true;
@@ -902,7 +922,8 @@ namespace PapierMache::DbStuff {
                                     }
                                 }
                                 if (!isSuccess) {
-                                    toBytesDataFromString("User authentication is failed.", response);
+                                    Result r{-1, "", "", "User authentication is failed."};
+                                    response = r.toBytes();
                                     setData(id, std::cref(response));
                                     toNotify(id);
                                     continue;
@@ -925,7 +946,8 @@ namespace PapierMache::DbStuff {
                                 oss << static_cast<char>(data[i]);
                             }
                             if (toLower(oss.str()) != "please:") {
-                                toBytesDataFromString("parse error.", response);
+                                Result r{-1, "", "", "parse error."};
+                                response = r.toBytes();
                                 setData(id, std::cref(response));
                                 toNotify(id);
                                 continue;
@@ -935,25 +957,29 @@ namespace PapierMache::DbStuff {
                                 oss << static_cast<char>(data[i]);
                             }
                             if (isTransactionExists(id) && toLower(oss.str()) == "transaction") {
-                                toBytesDataFromString("transaction is already exists.", response);
+                                Result r{-1, "", "", "transaction is already exists."};
+                                response = r.toBytes();
                                 setData(id, std::cref(response));
                                 toNotify(id);
                                 continue;
                             }
                             if (!isTransactionExists(id) && toLower(oss.str()) != "transaction") {
-                                toBytesDataFromString("cannot find transaction.", response);
+                                Result r{-1, "", "", "cannot find transaction."};
+                                response = r.toBytes();
                                 setData(id, std::cref(response));
                                 toNotify(id);
                                 continue;
                             }
                             if (!isTransactionExists(id) && toLower(oss.str()) == "transaction") {
                                 if (addTransaction(id)) {
-                                    toBytesDataFromString("transaction start is succeed.", response);
+                                    Result r{1, "", "", "transaction start is succeed."};
+                                    response = r.toBytes();
                                     setData(id, std::cref(response));
                                     toNotify(id);
                                 }
                                 else {
-                                    toBytesDataFromString("transaction start is failed.", response);
+                                    Result r{-1, "", "", "transaction start is failed."};
+                                    response = r.toBytes();
                                     setData(id, std::cref(response));
                                     toNotify(id);
                                 }
@@ -1027,6 +1053,13 @@ namespace PapierMache::DbStuff {
                                 }
                                 trimParentheses(v);
                                 bool result = getDatafile(tableName).insert(getTransactionId(id), v);
+                                if (!result) {
+                                    rollbackTransaction(getTransactionId(id));
+                                    throw DatabaseException{"transaction is terminated."};
+                                }
+                                std::string tableInfo = getDatafile(tableName).tableInfo();
+                                Result r{1, tableName, tableInfo, "insert success."};
+                                response = r.toBytes();
                             }
                             else if (operationName == "update") {
                                 if (!getDatafile(tableName).isPermitted(operationName, userName)) {
@@ -1042,6 +1075,9 @@ namespace PapierMache::DbStuff {
                                     rollbackTransaction(getTransactionId(id));
                                     throw DatabaseException{"transaction is terminated."};
                                 }
+                                std::string tableInfo = getDatafile(tableName).tableInfo();
+                                Result r{1, tableName, tableInfo, "update success."};
+                                response = r.toBytes();
                             }
                             else if (operationName == "delete") {
                                 if (!getDatafile(tableName).isPermitted(operationName, userName)) {
@@ -1057,12 +1093,19 @@ namespace PapierMache::DbStuff {
                                     rollbackTransaction(getTransactionId(id));
                                     throw DatabaseException{"transaction is terminated."};
                                 }
+                                std::string tableInfo = getDatafile(tableName).tableInfo();
+                                Result r{1, tableName, tableInfo, "delete success."};
+                                response = r.toBytes();
                             }
                             else if (operationName == "commit") {
                                 commitTransaction(getTransactionId(id));
+                                Result r{1, tableName, "", "commit success."};
+                                response = r.toBytes();
                             }
                             else if (operationName == "rollback") {
                                 rollbackTransaction(getTransactionId(id));
+                                Result r{1, tableName, "", "rollback success."};
+                                response = r.toBytes();
                             }
                             else if (operationName == "user") {
                                 throw DatabaseException{"operation PLEASE:USER is already done."};
@@ -1074,7 +1117,7 @@ namespace PapierMache::DbStuff {
                         catch (DatafileException &e) {
                             // TODO: エラー内容を送信する
                             DB_LOG << e.what() << FILE_INFO;
-                            toBytesDataFromString(e.what(), response);
+                            Result r{-1, "", "", e.what()};
                             setData(id, std::cref(response));
                             toNotify(id);
                             continue;
@@ -1082,7 +1125,7 @@ namespace PapierMache::DbStuff {
                         catch (DatabaseException &e) {
                             // TODO: エラー内容を送信する
                             DB_LOG << e.what() << FILE_INFO;
-                            toBytesDataFromString(e.what(), response);
+                            Result r{-1, "", "", e.what()};
                             setData(id, std::cref(response));
                             toNotify(id);
                             continue;
@@ -1216,9 +1259,9 @@ namespace PapierMache::DbStuff {
     class Driver {
     public:
         struct Result {
-            const bool isSucceed;
+            bool isSucceed;
             std::vector<std::map<std::string, std::string>> rows;
-            const std::string message;
+            std::string message;
 
             Result(const bool b, std::vector<std::map<std::string, std::string>> v, const std::string s)
                 : isSucceed{b}, rows{v}, message{s}
@@ -1296,6 +1339,7 @@ namespace PapierMache::DbStuff {
                 error = "";
 
                 bool b = false;
+                char flag = -1;
                 std::ostringstream oss{""};
                 auto it = data.begin();
                 for (; it != data.end(); ++it) {
@@ -1305,11 +1349,13 @@ namespace PapierMache::DbStuff {
                         ++it;
                         break;
                     }
-                    if (static_cast<char>(*it) == 0) {
+                    if (static_cast<char>(*it) >= 0) {
                         b = true;
+                        flag = static_cast<char>(*it);
                     }
                     else {
                         error = "operation failed";
+                        flag = static_cast<char>(*it);
                     }
                 }
                 std::string tableName;
@@ -1360,25 +1406,52 @@ namespace PapierMache::DbStuff {
                         oss << static_cast<char>(*it);
                     }
                 }
-                if (v.size() > 0) {
-                    std::string sizeStr;
-                    sizeStr.resize(v.size());
-                    for (int i = 0; i < sizeStr.length(); ++i) {
-                        sizeStr[i] = static_cast<char>(v[i]);
-                    }
-                    int size = std::stoi(sizeStr);
-                    v.clear();
-                    tableInfo.insert(std::make_pair(oss.str(), size));
-                    oss.str("");
-                }
 
-                bool valueMode = false;
-                int sizeCount = 0;
-                int colCount = 0;
-                std::string colName;
-                std::map<std::string, std::string> row;
-                for (; it != data.end(); ++it) {
-                    if (valueMode && sizeCount == 0) {
+                if (flag == 0) {
+                    if (v.size() > 0) {
+                        std::string sizeStr;
+                        sizeStr.resize(v.size());
+                        for (int i = 0; i < sizeStr.length(); ++i) {
+                            sizeStr[i] = static_cast<char>(v[i]);
+                        }
+                        int size = std::stoi(sizeStr);
+                        v.clear();
+                        tableInfo.insert(std::make_pair(oss.str(), size));
+                        oss.str("");
+                    }
+
+                    bool valueMode = false;
+                    int sizeCount = 0;
+                    int colCount = 0;
+                    std::string colName;
+                    std::map<std::string, std::string> row;
+                    for (; it != data.end(); ++it) {
+                        if (valueMode && sizeCount == 0) {
+                            row.insert(std::make_pair(colName, oss.str()));
+                            oss.str("");
+                            valueMode = false;
+                            if (++colCount == tableInfo.size()) {
+                                rows.push_back(row);
+                                row.clear();
+                                colCount = 0;
+                                sizeCount = 0;
+                            }
+                        }
+                        if (!valueMode && static_cast<char>(*it) == '=') {
+                            colName = oss.str();
+                            oss.str("");
+                            valueMode = true;
+                            sizeCount = tableInfo.at(colName);
+                        }
+                        else if (valueMode && sizeCount > 0) {
+                            oss << static_cast<char>(*it);
+                            --sizeCount;
+                        }
+                        else {
+                            oss << static_cast<char>(*it);
+                        }
+                    }
+                    if (valueMode && oss.str().length() > 0) {
                         row.insert(std::make_pair(colName, oss.str()));
                         oss.str("");
                         valueMode = false;
@@ -1389,32 +1462,24 @@ namespace PapierMache::DbStuff {
                             sizeCount = 0;
                         }
                     }
-                    if (!valueMode && static_cast<char>(*it) == '=') {
-                        colName = oss.str();
-                        oss.str("");
-                        valueMode = true;
-                        sizeCount = tableInfo.at(colName);
+                }
+                else {
+                    std::ostringstream msg{""};
+                    bool valueMode = false;
+                    for (; it != data.end(); ++it) {
+                        if (static_cast<char>(*it) == '=') {
+                            valueMode = true;
+                            continue;
+                        }
+                        if (valueMode) {
+                            msg << static_cast<char>(*it);
+                        }
                     }
-                    else if (valueMode && sizeCount > 0) {
-                        oss << static_cast<char>(*it);
-                        --sizeCount;
-                    }
-                    else {
-                        oss << static_cast<char>(*it);
+                    if (msg.str().length() > 0) {
+                        error += " " + msg.str();
                     }
                 }
-                if (valueMode && oss.str().length() > 0) {
-                    row.insert(std::make_pair(colName, oss.str()));
-                    oss.str("");
-                    valueMode = false;
-                    if (++colCount == tableInfo.size()) {
-                        rows.push_back(row);
-                        row.clear();
-                        colCount = 0;
-                        sizeCount = 0;
-                    }
-                }
-                return Result{true, rows, error};
+                return Result{b, rows, error};
             }
             catch (std::exception &e) {
                 if (error == "") {

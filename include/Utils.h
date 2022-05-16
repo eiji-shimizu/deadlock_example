@@ -30,6 +30,9 @@ namespace PapierMache {
 
     inline std::string trim(const std::string &s, const char target)
     {
+        if (s.length() == 0) {
+            return "";
+        }
         std::ostringstream oss{""};
         auto it = s.cbegin();
         auto rit = s.crbegin();

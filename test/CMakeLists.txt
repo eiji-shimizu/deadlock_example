@@ -2,6 +2,7 @@ enable_testing()
 
 add_executable(
     de_test
+    DatabaseTest.cpp
     IdGeneratorTest.cpp
     Setup.cpp
 )

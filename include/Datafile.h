@@ -166,6 +166,25 @@ namespace PapierMache::DbStuff {
         bool insert(const TRANSACTION_ID transactionId, const std::vector<std::byte> &data)
         {
             std::map<std::string, std::vector<std::byte>> m = parseKeyValueVector(data);
+            int max = -1;
+            std::string name;
+            for (const auto &e : tableInfo_.columnDefinitions()) {
+                if (max < std::get<3>(e)) {
+                    max = std::get<3>(e);
+                    name = std::get<0>(e);
+                }
+            }
+            if (m.find(name) == m.end()) {
+                std::vector<std::byte> value = tableInfo_.defaultValue(name);
+                if (value.size() > tableInfo_.columnSize(name)) {
+                    throw std::runtime_error{"column name: " + name + " definition has error"};
+                }
+                while (value.size() != tableInfo_.columnSize(name)) {
+                    value.push_back(std::byte{});
+                }
+                m.insert(std::make_pair(name, value));
+            }
+
             std::lock_guard<std::mutex> lock{*pMt_};
             temp_.emplace_back(-1LL, transactionId, m);
             return true;
@@ -716,6 +735,27 @@ namespace PapierMache::DbStuff {
                 }
                 else if (colType == "datetime") {
                     return lhs == rhs;
+                }
+                else {
+                    throw DatafileException{"unknown column type" + FILE_INFO};
+                }
+            }
+
+            const std::vector<std::byte> defaultValue(const std::string colName) const
+            {
+                const std::string colType = columnType(colName);
+                if (colType == "string") {
+                    return std::vector<std::byte>{};
+                }
+                else if (colType == "password") {
+                    throw DatafileException{"password cannot have default value" + FILE_INFO};
+                }
+                else if (colType == "datetime") {
+                    std::vector<std::byte> v;
+                    for (const char c : getLocalTimeStr()) {
+                        v.push_back(static_cast<std::byte>(c));
+                    }
+                    return v;
                 }
                 else {
                     throw DatafileException{"unknown column type" + FILE_INFO};
