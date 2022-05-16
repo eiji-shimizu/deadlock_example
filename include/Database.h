@@ -591,6 +591,7 @@ namespace PapierMache::DbStuff {
             auto it = std::remove_if(transactionList_.begin(), transactionList_.end(),
                                      [tId = id](Transaction &t) { return t.id() == tId; });
             transactionList_.erase(it, transactionList_.end());
+            tIdGenerator_.release(id);
             return true;
         }
 
@@ -642,6 +643,7 @@ namespace PapierMache::DbStuff {
             auto it = std::remove_if(transactionList_.begin(), transactionList_.end(),
                                      [tId = id](Transaction &t) { return t.id() == tId; });
             transactionList_.erase(it, transactionList_.end());
+            tIdGenerator_.release(id);
         }
 
         void rollbackTransaction(const TRANSACTION_ID id)
@@ -654,6 +656,7 @@ namespace PapierMache::DbStuff {
             auto it = std::remove_if(transactionList_.begin(), transactionList_.end(),
                                      [tId = id](Transaction &t) { return t.id() == tId; });
             transactionList_.erase(it, transactionList_.end());
+            tIdGenerator_.release(id);
         }
 
         void toBytesDataFromString(const std::string &s, std::vector<std::byte> &out)
