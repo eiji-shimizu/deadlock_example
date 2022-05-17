@@ -297,6 +297,7 @@ namespace PapierMache::DbStuff {
 
         const Connection getConnection()
         {
+            std::lock_guard<std::mutex> gclk{getConnectionMt_};
             std::unique_lock<std::mutex> lock{mt_};
             DB_LOG << "Database::getConnection()" << FILE_INFO;
             if (isRequiredConnection_) {
@@ -771,7 +772,7 @@ namespace PapierMache::DbStuff {
             start = i;
         }
 
-        std::thread startChildThread(const std::string connectionId)
+        std::thread startChildThread(const std::string connectionId, ThreadsMap &threadsMapRef)
         {
             // クライアントとやり取りするスレッドを作成
             bool reuse = false;
@@ -801,7 +802,7 @@ namespace PapierMache::DbStuff {
                 throw std::runtime_error{"cannot find connection. should not reach here." + FILE_INFO};
             }
 
-            std::thread t{[&condition = conditions_.at(i), this] {
+            std::thread t{[&condition = conditions_.at(i), &threadsMap = threadsMapRef, this] {
                 try {
                     std::string id;
                     { // 読み込みロック
@@ -811,6 +812,7 @@ namespace PapierMache::DbStuff {
                     while (true) {
                         if (toBeStopped_.load() || isClosed(id)) {
                             DB_LOG << "child thread return." << FILE_INFO;
+                            threadsMap.setFinishedFlag(std::this_thread::get_id());
                             return;
                         }
                         { // Scoped Lock start
@@ -824,6 +826,7 @@ namespace PapierMache::DbStuff {
                         } // Scoped Lock end
                         if (toBeStopped_.load() || isClosed(id)) {
                             DB_LOG << "child thread return." << FILE_INFO;
+                            threadsMap.setFinishedFlag(std::this_thread::get_id());
                             return;
                         }
 
@@ -921,7 +924,13 @@ namespace PapierMache::DbStuff {
                                         }
                                     }
                                 }
-                                if (!isSuccess) {
+
+                                // 成功していれば次のループへ進む
+                                // 失敗していればエラーメッセージを送信してから次のループへ進む
+                                if (isSuccess) {
+                                    continue;
+                                }
+                                else {
                                     Result r{-1, "", "", "User authentication is failed."};
                                     response = r.toBytes();
                                     setData(id, std::cref(response));
@@ -1153,7 +1162,7 @@ namespace PapierMache::DbStuff {
                     std::get<0>(sc) = "";
                     std::get<3>(sc) = false;
                 }
-                ThreadsMap threadsMap_;
+                ThreadsMap threadsMap;
                 while (true) {
                     if (toBeStopped_.load()) {
                         DB_LOG << "toBeStopped_: " << toBeStopped_.load() << FILE_INFO;
@@ -1176,10 +1185,10 @@ namespace PapierMache::DbStuff {
                     std::thread t;
                     { // Scoped Lock start
                         std::lock_guard<std::mutex> lock{mt_};
-                        t = startChildThread(connectionId);
+                        t = startChildThread(connectionId, threadsMap);
                     } // Scoped Lock end
-                    threadsMap_.addThread(std::move(t));
-                    threadsMap_.cleanUp();
+                    threadsMap.addThread(std::move(t));
+                    threadsMap.cleanUp();
                 }
             }
             catch (std::exception &e) {
@@ -1212,6 +1221,10 @@ namespace PapierMache::DbStuff {
 
         // サービスが開始していればtrue
         bool isStarted_;
+
+        // getConnection関数の呼び出しの同期用のミューテックス
+        std::mutex getConnectionMt_;
+
         std::mutex mt_;
         // データベースサービスのメインスレッド
         std::thread thread_;

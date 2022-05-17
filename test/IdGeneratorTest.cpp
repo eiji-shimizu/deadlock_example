@@ -70,7 +70,7 @@ namespace PapierMache::DbStuff {
         char id = -1;
         try {
             id = idg.getId();
-            ASSERT_FALSE(true);
+            FAIL() << "We shouldn't get here.";
         }
         catch (const std::exception &e) {
             LOG << e.what();
@@ -94,7 +94,7 @@ namespace PapierMache::DbStuff {
         char id = -1;
         try {
             id = idg.getId();
-            ASSERT_FALSE(true);
+            FAIL() << "We shouldn't get here.";
         }
         catch (const std::exception &e) {
             LOG << e.what();
@@ -125,7 +125,7 @@ namespace PapierMache::DbStuff {
             ASSERT_EQ(122, idg.getId());
             ASSERT_EQ(125, idg.getId());
             id = idg.getId();
-            ASSERT_FALSE(true);
+            FAIL() << "We shouldn't get here.";
         }
         catch (const std::exception &e) {
             LOG << e.what();
@@ -172,7 +172,7 @@ namespace PapierMache::DbStuff {
         char id = -1;
         try {
             id = idg.getId();
-            ASSERT_FALSE(true);
+            FAIL() << "We shouldn't get here.";
         }
         catch (const std::exception &e) {
             LOG << e.what();
@@ -227,7 +227,7 @@ namespace PapierMache::DbStuff {
         char id = -1;
         try {
             id = idg.getId();
-            ASSERT_FALSE(true);
+            FAIL() << "We shouldn't get here.";
         }
         catch (const std::exception &e) {
             LOG << e.what();
@@ -242,7 +242,7 @@ namespace PapierMache::DbStuff {
             idg.release(6);
         }
         catch (...) {
-            ASSERT_FALSE(true);
+            FAIL() << "We shouldn't get here.";
         }
     }
 
@@ -258,7 +258,7 @@ namespace PapierMache::DbStuff {
             ASSERT_EQ(1, id);
         }
         catch (...) {
-            ASSERT_FALSE(true);
+            FAIL() << "We shouldn't get here.";
         }
     }
 

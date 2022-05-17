@@ -264,8 +264,8 @@ namespace PapierMache::DbStuff {
                             }
                         }
                         TRANSACTION_ID s = toShort(buffer);
-                        DB_LOG << "s: " << s << FILE_INFO;
-                        DB_LOG << "transactionId: " << transactionId << FILE_INFO;
+                        DEBUG_LOG << "s: " << s << FILE_INFO;
+                        DEBUG_LOG << "transactionId: " << transactionId << FILE_INFO;
                         if (s >= 0 && s != transactionId) {
                             while (true) {
                                 if (std::find(toTerminateList_.begin(), toTerminateList_.end(), transactionId) == toTerminateList_.end()) {
@@ -365,7 +365,7 @@ namespace PapierMache::DbStuff {
                                     throw std::runtime_error{"WriteFile() : Error: number of bytes to write != number of bytes that were written" + FILE_INFO};
                                 }
                                 else {
-                                    DB_LOG << "succeed. transactionId: " << transactionId << FILE_INFO;
+                                    DEBUG_LOG << "succeed. transactionId: " << transactionId << FILE_INFO;
                                 }
                             }
                             // TemporaryDataにこの行のポジションを設定して追加する
@@ -394,7 +394,7 @@ namespace PapierMache::DbStuff {
         bool update(const TRANSACTION_ID transactionId,
                     const std::vector<std::byte> &where)
         {
-            DB_LOG << "delete operation";
+            DEBUG_LOG << "delete operation";
             return update(transactionId, std::vector<std::byte>{}, where);
         }
 
@@ -1058,7 +1058,7 @@ namespace PapierMache::DbStuff {
                             throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
                         }
                         // コントロールデータの作成
-                        DB_LOG << "-----------------------------" << id << FILE_INFO;
+                        DEBUG_LOG << "-----------------------------" << id << FILE_INFO;
                         ControlData cd{0, -1};
                         bErrorFlag = WriteFile(getHandle(id), &cd, sizeof(cd), &dwBytesWritten, NULL);
                         if (FALSE == bErrorFlag) {
@@ -1069,7 +1069,7 @@ namespace PapierMache::DbStuff {
                                 throw std::runtime_error{"WriteFile() : Error: number of bytes to write != number of bytes that were written" + FILE_INFO};
                             }
                             else {
-                                DB_LOG << "succeed. transactionId: " << id << FILE_INFO;
+                                DEBUG_LOG << "succeed. transactionId: " << id << FILE_INFO;
                             }
                         }
                         // データの行頭位置を退避(制御情報ではない)
@@ -1097,7 +1097,7 @@ namespace PapierMache::DbStuff {
                                     throw std::runtime_error{"WriteFile() : Error: number of bytes to write != number of bytes that were written" + FILE_INFO};
                                 }
                                 else {
-                                    DB_LOG << "succeed. transactionId: " << id << FILE_INFO;
+                                    DEBUG_LOG << "succeed. transactionId: " << id << FILE_INFO;
                                 }
                             }
                         }
@@ -1134,7 +1134,7 @@ namespace PapierMache::DbStuff {
                                         throw std::runtime_error{"WriteFile() : Error: number of bytes to write != number of bytes that were written" + FILE_INFO};
                                     }
                                     else {
-                                        DB_LOG << "succeed. transactionId: " << id << FILE_INFO;
+                                        DEBUG_LOG << "succeed. transactionId: " << id << FILE_INFO;
                                     }
                                 }
                                 // データを書き込む
@@ -1151,7 +1151,7 @@ namespace PapierMache::DbStuff {
                                         throw std::runtime_error{"WriteFile() : Error: number of bytes to write != number of bytes that were written" + FILE_INFO};
                                     }
                                     else {
-                                        DB_LOG << "succeed. transactionId: " << id << FILE_INFO;
+                                        DEBUG_LOG << "succeed. transactionId: " << id << FILE_INFO;
                                     }
                                 }
                             }
@@ -1171,7 +1171,7 @@ namespace PapierMache::DbStuff {
                                     throw std::runtime_error{"WriteFile() : Error: number of bytes to write != number of bytes that were written" + FILE_INFO};
                                 }
                                 else {
-                                    DB_LOG << "succeed. transactionId: " << id << FILE_INFO;
+                                    DEBUG_LOG << "succeed. transactionId: " << id << FILE_INFO;
                                 }
                             }
                         }
@@ -1194,8 +1194,8 @@ namespace PapierMache::DbStuff {
                                     throw std::runtime_error{"WriteFile() : Error: number of bytes to write != number of bytes that were written" + FILE_INFO};
                                 }
                                 else {
-                                    DB_LOG << "delete-----------------------" << FILE_INFO;
-                                    DB_LOG << "succeed. transactionId: " << id << FILE_INFO;
+                                    DEBUG_LOG << "delete-----------------------" << FILE_INFO;
+                                    DEBUG_LOG << "succeed. transactionId: " << id << FILE_INFO;
                                 }
                             }
                         }
@@ -1222,7 +1222,7 @@ namespace PapierMache::DbStuff {
                             throw std::runtime_error{"WriteFile() : Error: number of bytes to write != number of bytes that were written" + FILE_INFO};
                         }
                         else {
-                            DB_LOG << "ROLLBACK succeed. transactionId: " << id << FILE_INFO;
+                            DEBUG_LOG << "ROLLBACK succeed. transactionId: " << id << FILE_INFO;
                         }
                     }
                 }
