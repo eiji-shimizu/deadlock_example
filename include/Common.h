@@ -35,6 +35,8 @@ extern PapierMache::Logger<std::ostream> logger;
 
 extern const std::map<std::string, std::map<std::string, std::string>> webConfiguration;
 
-// extern PapierMache::DbStuff::Database database;
+extern PapierMache::DbStuff::Database *database;
+
+inline PapierMache::DbStuff::Database &db() { return *database; }
 
 #endif // DEADLOCK_EXAMPLE_COMMON_INCLUDED

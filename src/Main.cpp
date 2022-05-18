@@ -15,7 +15,7 @@ PapierMache::Logger<std::ostream> logger{std::cout};
 
 const std::map<std::string, std::map<std::string, std::string>> webConfiguration{PapierMache::readConfiguration("./webconfig/server.ini")};
 
-// PapierMache::DbStuff::Database database{};
+PapierMache::DbStuff::Database *database;
 
 void testFunc0(PapierMache::DbStuff::Connection con, std::string name, std::string message)
 {
@@ -96,6 +96,8 @@ int main()
         PapierMache::DbStuff::Database db{};
         db.start();
         LOG << "database initialization end.";
+        // グローバル変数にこのデータベースをセット
+        database = &db;
 
         // TODO: 実装が進んだらWebServerにdbの参照をセットしてから開始する
         if (server.start() != 0) {

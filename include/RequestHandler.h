@@ -102,10 +102,10 @@ namespace PapierMache {
             else if (extension == "png") {
                 hr.mediaType = std::string{"image/"} + extension;
             }
-            else if (resourcePath.extension() == "html") {
+            else if (extension == "html") {
                 hr.mediaType = std::string{"text/"} + extension;
             }
-                     else if (resourcePath.extension() == "js") {
+            else if (extension == "js") {
                 hr.mediaType = std::string{"text/javascript"};
             }
             hr.status = HttpResponseStatusCode::OK;

@@ -77,6 +77,20 @@ namespace PapierMache {
         return oss.str();
     }
 
+    inline std::vector<std::byte> toBytesFromString(const std::string &s)
+    {
+        std::vector<std::byte> out;
+        for (const char c : s) {
+            out.push_back(static_cast<std::byte>(c));
+        }
+        return out;
+    }
+
+    inline std::string setDq(const std::string &s)
+    {
+        return std::string{'\"'} + s + std::string{'\"'};
+    }
+
     // システムのローカル日時の文字列を返す
     // 最大の長さで
     // 30827-12-31 23:59:59.999
