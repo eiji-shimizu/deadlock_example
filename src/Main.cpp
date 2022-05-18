@@ -75,7 +75,6 @@ PapierMache::DbStuff::Driver::Result testFunc(PapierMache::DbStuff::Connection c
 int main()
 {
     try {
-
         LOG << "application start." << FILE_INFO;
         WEB_LOG << "web configuration is";
         WEB_LOG << "webServer PORT: " << PapierMache::getValue<std::string>(webConfiguration, "webServer", "PORT");
@@ -97,79 +96,6 @@ int main()
         PapierMache::DbStuff::Database db{};
         db.start();
         LOG << "database initialization end.";
-
-        // 以下簡単なテストコード
-        db.start();
-        db.start();
-        db.start();
-
-        // PapierMache::DbStuff::Connection con = db.getConnection();
-        // testFunc(con, "con1", "PLEASE:TRANSACTION");
-        // con.close();
-        // PapierMache::DbStuff::Connection con2 = db.getConnection();
-        // testFunc(con2, "con2", "PLEASE:UPDATE");
-        // PapierMache::DbStuff::Connection con3 = db.getConnection();
-        // testFunc(con3, "con3", "PLEASE:TRANSACTION");
-        // testFunc(con3, "con3", "PLEASE:TRANSACTION");
-        // testFunc(con3, "con3", "PLEASE:DELETE");
-        // con3.close();
-        // con2.close();
-        // testFunc(con, "con1", "PLEASE:TRANSACTION");
-
-        PapierMache::DbStuff::Connection con4 = db.getConnection();
-        testFunc(con4, "con4", "PLEASE:USER admin adminpass");
-        testFunc(con4, "con4", "PLEASE:TRANSACTION");
-        testFunc(con4, "con4", "please:insert User    (   USER_NAME=\"testuser999\" , DATETIME=\"30827:12:31:23:59:59:999\")");
-        testFunc(con4, "con4", "PLEASE:commiT");
-
-        testFunc(con4, "con4", "PLEASE:TRANSACTION");
-        testFunc(con4, "con4", "please:update User    (   USER_NAME=\"testuser8787\" , DATETIME=\"30827:12:31:23:59:59:999\")(   USER_NAME=\"testuser999\" , DATETIME=\"30827:12:31:23:59:59:999\")");
-        // testFunc(con4, "con4", "PLEASE:ROLLBACK");
-        testFunc(con4, "con4", "PLEASE:commit");
-
-        testFunc(con4, "con4", "PLEASE:TRANSACTION");
-        testFunc(con4, "con4", "please:insert User    (   USER_NAME=\"testuser10\" , DATETIME=\"30827:12:31:23:59:59:999\")");
-        testFunc(con4, "con4", "PLEASE:commit");
-
-        PapierMache::DbStuff::Connection con5 = db.getConnection();
-        testFunc(con5, "con5", "PLEASE:USER user1 user1pass");
-        // testFunc(con5, "con5", "PLEASE:USER admin adminpass");
-        testFunc(con5, "con5", "PLEASE:TRANSACTION");
-
-        testFunc(con4, "con4", "PLEASE:TRANSACTION");
-        testFunc(con4, "con4", "please:update User    (   USER_NAME=\"testuser777\" , DATETIME=\"30827:12:31:23:59:59:999\")(   USER_NAME=\"testuser10\" , DATETIME=\"30827:12:31:23:59:59:999\")");
-        con4.terminate();
-        testFunc(con5, "con5", "please:update User    (   USER_NAME=\"testuser555\" , DATETIME=\"30827:12:31:23:59:59:999\")(   USER_NAME=\"testuser10\" , DATETIME=\"30827:12:31:23:59:59:999\")");
-
-        // testFunc(con4, "con4", "PLEASE:commit");
-        testFunc(con5, "con5", "PLEASE:commit");
-        // con4.close();
-        testFunc(con4, "con4", "PLEASE:TRANSACTION");
-        testFunc(con4, "con4", "please:delete User    (   USER_NAME=\"testuser8787\" , DATETIME=\"30827:12:31:23:59:59:999\")");
-        testFunc(con4, "con4", "PLEASE:commit");
-
-        testFunc(con4, "con4", "PLEASE:TRANSACTION");
-        testFunc(con4, "con4", "please:delete User    (   USER_NAME=\"testuser888\")");
-        testFunc(con4, "con4", "PLEASE:commit");
-
-        testFunc(con5, "con5", "PLEASE:TRANSACTION");
-        testFunc(con5, "con5", "please:delete User    (   USER_NAME=\"testuser555\")");
-        testFunc(con5, "con5", "PLEASE:commit");
-
-        PapierMache::DbStuff::Connection con6 = db.getConnection();
-        testFunc(con6, "con6", "PLEASE:USER admin adminpass");
-        testFunc(con6, "con6", "PLEASE:TRANSACTION");
-        const auto result = testFunc(con6, "con6", "please:select User ");
-        DB_LOG << "test result";
-        for (const auto e : result.rows) {
-            for (const auto p : e) {
-                DB_LOG << p.first << ", " << p.second;
-            }
-        }
-
-        //  テストコードここまで
-
-        LOG << "------------------------------";
 
         // TODO: 実装が進んだらWebServerにdbの参照をセットしてから開始する
         if (server.start() != 0) {
