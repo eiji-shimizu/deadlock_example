@@ -381,6 +381,7 @@ namespace PapierMache::DbStuff {
                             Connection con = db.getConnection();
                             Driver driver{con};
                             Driver::Result r = driver.sendQuery("please:user admin adminpass");
+                            LOG << r.isSucceed << ": " << r.message;
                             if (!r.isSucceed) FAIL();
                             r = driver.sendQuery("please:transaction   ");
                             LOG << r.isSucceed << ": " << r.message;
@@ -420,6 +421,7 @@ namespace PapierMache::DbStuff {
             Connection con = db.getConnection();
             Driver driver{con};
             Driver::Result r = driver.sendQuery("please:user admin adminpass");
+            LOG << r.isSucceed << ": " << r.message;
             if (!r.isSucceed) FAIL();
             r = driver.sendQuery("please:transaction");
             LOG << r.isSucceed << ": " << r.message;
@@ -459,6 +461,7 @@ namespace PapierMache::DbStuff {
                             Connection con = db.getConnection();
                             Driver driver{con};
                             Driver::Result r = driver.sendQuery("please:user admin adminpass");
+                            LOG << r.isSucceed << ": " << r.message;
                             if (!r.isSucceed) FAIL();
                             r = driver.sendQuery("please:transaction   ");
                             LOG << r.isSucceed << ": " << r.message;
@@ -593,6 +596,7 @@ namespace PapierMache::DbStuff {
                             Connection con = db.getConnection();
                             Driver driver{con};
                             Driver::Result r = driver.sendQuery("please:user admin adminpass");
+                            LOG << r.isSucceed << ": " << r.message;
                             if (!r.isSucceed) FAIL();
                             r = driver.sendQuery("please:transaction   ");
                             LOG << r.isSucceed << ": " << r.message;
@@ -632,6 +636,7 @@ namespace PapierMache::DbStuff {
             Connection con = db.getConnection();
             Driver driver{con};
             Driver::Result r = driver.sendQuery("please:user admin adminpass");
+            LOG << r.isSucceed << ": " << r.message;
             if (!r.isSucceed) FAIL();
             r = driver.sendQuery("please:transaction");
             LOG << r.isSucceed << ": " << r.message;
@@ -669,6 +674,7 @@ namespace PapierMache::DbStuff {
                             Connection con = db.getConnection();
                             Driver driver{con};
                             Driver::Result r = driver.sendQuery("please:user admin adminpass");
+                            LOG << r.isSucceed << ": " << r.message;
                             if (!r.isSucceed) FAIL();
                             r = driver.sendQuery("please:transaction   ");
                             LOG << r.isSucceed << ": " << r.message;
@@ -819,6 +825,7 @@ namespace PapierMache::DbStuff {
                             Connection con = db.getConnection();
                             Driver driver{con};
                             Driver::Result r = driver.sendQuery("please:user admin adminpass");
+                            LOG << r.isSucceed << ": " << r.message;
                             if (!r.isSucceed) FAIL();
                             r = driver.sendQuery("please:transaction   ");
                             LOG << r.isSucceed << ": " << r.message;
@@ -858,6 +865,7 @@ namespace PapierMache::DbStuff {
             Connection con = db.getConnection();
             Driver driver{con};
             Driver::Result r = driver.sendQuery("please:user admin adminpass");
+            LOG << r.isSucceed << ": " << r.message;
             if (!r.isSucceed) FAIL();
             r = driver.sendQuery("please:transaction");
             LOG << r.isSucceed << ": " << r.message;
@@ -895,6 +903,7 @@ namespace PapierMache::DbStuff {
                             Connection con = db.getConnection();
                             Driver driver{con};
                             Driver::Result r = driver.sendQuery("please:user admin adminpass");
+                            LOG << r.isSucceed << ": " << r.message;
                             if (!r.isSucceed) FAIL();
                             r = driver.sendQuery("please:transaction   ");
                             LOG << r.isSucceed << ": " << r.message;
@@ -1064,6 +1073,7 @@ namespace PapierMache::DbStuff {
     //                         Connection con = db.getConnection();
     //                         Driver driver{con};
     //                         Driver::Result r = driver.sendQuery("please:user admin adminpass");
+    //                         LOG << r.isSucceed << ": " << r.message;
     //                         if (!r.isSucceed) FAIL();
     //                         r = driver.sendQuery("please:transaction   ");
     //                         LOG << r.isSucceed << ": " << r.message;
@@ -1103,6 +1113,7 @@ namespace PapierMache::DbStuff {
     //         Connection con = db.getConnection();
     //         Driver driver{con};
     //         Driver::Result r = driver.sendQuery("please:user admin adminpass");
+    //         LOG << r.isSucceed << ": " << r.message;
     //         if (!r.isSucceed) FAIL();
     //         r = driver.sendQuery("please:transaction");
     //         LOG << r.isSucceed << ": " << r.message;
@@ -1140,6 +1151,7 @@ namespace PapierMache::DbStuff {
     //                         Connection con = db.getConnection();
     //                         Driver driver{con};
     //                         Driver::Result r = driver.sendQuery("please:user admin adminpass");
+    //                         LOG << r.isSucceed << ": " << r.message;
     //                         if (!r.isSucceed) FAIL();
     //                         r = driver.sendQuery("please:transaction   ");
     //                         LOG << r.isSucceed << ": " << r.message;
