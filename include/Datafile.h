@@ -247,70 +247,12 @@ namespace PapierMache::DbStuff {
                     }
                     // 有効なデータであれば処理
                     if (static_cast<unsigned char>(buffer[0]) == 0) {
-                        // 他のトランザクションの更新対象でないかを確認する
-                        buffer.clear();
-                        buffer.resize(2);
-                        bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
-                        if (FALSE == bResult) {
-                            throw std::runtime_error{"ReadFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                        // トランザクションidの位置退避
+                        LARGE_INTEGER tIdOffset;
+                        bErrorFlag = SetFilePointerEx(getHandle(transactionId), zero, &tIdOffset, FILE_CURRENT);
+                        if (FALSE == bErrorFlag) {
+                            throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
                         }
-                        else {
-                            if (dwBytesRead == 0) {
-                                DB_LOG << "------------------EOF" << FILE_INFO;
-                                break;
-                            }
-                            else if (dwBytesRead != buffer.size()) {
-                                throw std::runtime_error{"ReadFile() : Error: number of bytes to read != number of bytes that were read" + FILE_INFO};
-                            }
-                        }
-                        TRANSACTION_ID s = toShort(buffer);
-                        DEBUG_LOG << "s: " << s << FILE_INFO;
-                        DEBUG_LOG << "transactionId: " << transactionId << FILE_INFO;
-                        if (s >= 0 && s != transactionId) {
-                            while (true) {
-                                if (std::find(toTerminateList_.begin(), toTerminateList_.end(), transactionId) == toTerminateList_.end()) {
-                                    DB_LOG << "Datafile::update() wait start." << FILE_INFO;
-                                    pCond_->wait(lock);
-                                    DB_LOG << "Datafile::update() wait end." << FILE_INFO;
-                                }
-                                if (std::find(toTerminateList_.begin(), toTerminateList_.end(), transactionId) != toTerminateList_.end()) {
-                                    std::lock_guard<std::mutex> lk{*pMt_};
-                                    auto result = std::remove(toTerminateList_.begin(), toTerminateList_.end(), transactionId);
-                                    toTerminateList_.erase(result, toTerminateList_.end());
-                                    return false;
-                                }
-
-                                // 再びこの行のトランザクションの状態を確認する
-                                LARGE_INTEGER li;
-                                li.QuadPart = sizeof(TRANSACTION_ID);
-                                li.QuadPart = -1;
-                                bErrorFlag = SetFilePointerEx(getHandle(transactionId), li, NULL, FILE_CURRENT);
-                                if (FALSE == bErrorFlag) {
-                                    throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
-                                }
-                                buffer.clear();
-                                buffer.resize(2);
-                                bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
-                                if (FALSE == bResult) {
-                                    throw std::runtime_error{"ReadFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
-                                }
-                                else {
-                                    if (dwBytesRead == 0) {
-                                        DB_LOG << "------------------EOF" << FILE_INFO;
-                                        break;
-                                    }
-                                    else if (dwBytesRead != buffer.size()) {
-                                        throw std::runtime_error{"ReadFile() : Error: number of bytes to read != number of bytes that were read" + FILE_INFO};
-                                    }
-                                }
-                                s = toShort(buffer);
-                                if (s == 0) {
-                                    break;
-                                }
-                            }
-                            DB_LOG << "Overcame!!" << FILE_INFO;
-                        }
-
                         // 更新処理開始
                         // 条件に合致する行であればトランザクションIDを書き込む
                         bool isMatch = true;
@@ -349,6 +291,74 @@ namespace PapierMache::DbStuff {
                             }
                         }
                         if (isMatch) {
+                            // 他のトランザクションの更新対象でないかを確認する
+                            bErrorFlag = SetFilePointerEx(getHandle(transactionId), tIdOffset, NULL, FILE_BEGIN);
+                            if (FALSE == bErrorFlag) {
+                                throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                            }
+                            buffer.clear();
+                            buffer.resize(2);
+                            bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
+                            if (FALSE == bResult) {
+                                throw std::runtime_error{"ReadFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                            }
+                            else {
+                                if (dwBytesRead == 0) {
+                                    DB_LOG << "------------------EOF" << FILE_INFO;
+                                    break;
+                                }
+                                else if (dwBytesRead != buffer.size()) {
+                                    throw std::runtime_error{"ReadFile() : Error: number of bytes to read != number of bytes that were read" + FILE_INFO};
+                                }
+                            }
+                            TRANSACTION_ID s = toShort(buffer);
+                            DEBUG_LOG << "s: " << s << FILE_INFO;
+                            DEBUG_LOG << "transactionId: " << transactionId << FILE_INFO;
+                            if (s >= 0 && s != transactionId) {
+                                while (true) {
+                                    if (std::find(toTerminateList_.begin(), toTerminateList_.end(), transactionId) == toTerminateList_.end()) {
+                                        DB_LOG << "wait start." << FILE_INFO;
+                                        DB_LOG << "s: " << s << FILE_INFO;
+                                        DB_LOG << "transactionId: " << transactionId << FILE_INFO;
+                                        pCond_->wait(lock);
+                                        DB_LOG << "wait end." << FILE_INFO;
+                                    }
+                                    if (std::find(toTerminateList_.begin(), toTerminateList_.end(), transactionId) != toTerminateList_.end()) {
+                                        std::lock_guard<std::mutex> lk{*pMt_};
+                                        auto result = std::remove(toTerminateList_.begin(), toTerminateList_.end(), transactionId);
+                                        toTerminateList_.erase(result, toTerminateList_.end());
+                                        return false;
+                                    }
+
+                                    // 再びこの行のトランザクションの状態を確認する
+                                    bErrorFlag = SetFilePointerEx(getHandle(transactionId), tIdOffset, NULL, FILE_BEGIN);
+                                    if (FALSE == bErrorFlag) {
+                                        throw std::runtime_error{"SetFilePointerEx() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                                    }
+                                    buffer.clear();
+                                    buffer.resize(2);
+                                    bResult = ReadFile(h, buffer.data(), buffer.size(), &dwBytesRead, NULL);
+                                    if (FALSE == bResult) {
+                                        throw std::runtime_error{"ReadFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
+                                    }
+                                    else {
+                                        if (dwBytesRead == 0) {
+                                            DB_LOG << "------------------EOF" << FILE_INFO;
+                                            break;
+                                        }
+                                        else if (dwBytesRead != buffer.size()) {
+                                            throw std::runtime_error{"ReadFile() : Error: number of bytes to read != number of bytes that were read" + FILE_INFO};
+                                        }
+                                    }
+                                    s = toShort(buffer);
+                                    DB_LOG << "s: " << s << FILE_INFO;
+                                    DB_LOG << "transactionId: " << transactionId << FILE_INFO;
+                                    if (s < 0) {
+                                        break;
+                                    }
+                                }
+                                DB_LOG << "wait loop break." << FILE_INFO;
+                            }
                             // 行頭に戻る
                             bErrorFlag = SetFilePointerEx(getHandle(transactionId), save, NULL, FILE_BEGIN);
                             if (FALSE == bErrorFlag) {
@@ -357,6 +367,7 @@ namespace PapierMache::DbStuff {
                             // 自身のトランザクションIDを制御情報に書き込む
                             ControlData cd{0, transactionId};
                             bErrorFlag = WriteFile(getHandle(transactionId), &cd, sizeof(cd), &dwBytesWritten, NULL);
+                            DEBUG_LOG << "set transaction Id: " << transactionId;
                             if (FALSE == bErrorFlag) {
                                 throw std::runtime_error{"WriteFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
                             }
