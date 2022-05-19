@@ -1,0 +1,49 @@
+.flex-container {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+}
+
+.dlex_text_small {
+    width: 100px;
+}
+
+.dlex_text_medium {
+    width: 200px;
+}
+
+.dlex_text_large {
+    width: 300px;
+}
+
+.dlex_text {
+    padding: 5px 7px;
+    font-size: 16px;
+    border-radius: 3px;
+    border: 2px solid #ddd;
+    box-sizing: border-box;
+}
+
+.dlex_text:focus {
+    border: 2px solid #15bedb;
+    z-index: 10;
+    outline: 0;
+}
+
+.dlex_button {
+    width: 70px;
+    margin: auto 10px 2px;
+    font-size: 16px;
+    border-radius: 3px;
+    border: 2px solid #15bedb;
+    background-color: #15bedb;
+}
+
+.dlex_button:hover {
+    border: 2px solid #028ba3;
+}
+
+.dlex_button:active {
+    border: 2px solid #77e1f4;
+    background-color: #77e1f4;
+}

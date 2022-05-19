@@ -6,6 +6,7 @@
 #include "Database.h"
 #include "RequestHandler.h"
 
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -27,6 +28,57 @@ namespace PapierMache {
             return DefaultHandler::handle(request);
         }
     };
+
+    // 画面から送られてくる受注の内容のjson文字列をマップにして返す
+    // valueにダブルコーテーションは使用できない
+    inline std::map<std::string, std::string> parseOrderJson(const std::string s)
+    {
+        std::map<std::string, std::string> result;
+        std::ostringstream key{""};
+        std::ostringstream value{""};
+        bool isValue = false;
+        bool isInnerDq = false;
+        std::string temp = s;
+        WEB_LOG << temp;
+        temp = trim(temp, '{');
+        temp = trim(temp, '}');
+        WEB_LOG << temp;
+        for (const char c : temp) {
+            if (c == ':') {
+                if (!isInnerDq) {
+                    isValue = true;
+                }
+            }
+            else if (c == ',') {
+                if (!isInnerDq) {
+                    isValue = false;
+                    result.insert(std::make_pair(key.str(), value.str()));
+                    key.str("");
+                    value.str("");
+                }
+            }
+            else if (c == '"') {
+                if (isInnerDq) {
+                    isInnerDq = false;
+                }
+                else {
+                    isInnerDq = true;
+                }
+            }
+            else if (isValue) {
+                value << c;
+            }
+            else if (!isValue) {
+                key << c;
+            }
+        }
+        if (key.str().length() > 0) {
+            result.insert(std::make_pair(key.str(), value.str()));
+            key.str("");
+            value.str("");
+        }
+        return result;
+    }
 
     class DLEXOrderHandler : public RequestHandler {
     public:
@@ -127,6 +179,11 @@ namespace PapierMache {
         virtual HandlerResult handle(const HttpRequest request)
         {
             DEBUG_LOG << "----------------------DLEXAddOrderHandler::handle";
+
+            std::map<std::string, std::string> data = parseOrderJson(request.body);
+            for (const auto &e : data) {
+                WEB_LOG << e.first << ", " << e.second;
+            }
 
             DbStuff::Connection con = db().getConnection();
             DbStuff::Driver driver(con);

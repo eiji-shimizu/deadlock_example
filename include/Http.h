@@ -78,6 +78,7 @@ namespace PapierMache {
         std::string path;
         std::string protocol;
         std::map<std::string, std::string> headers;
+        std::string body;
 
         void setHttpRequestMethodFromText(std::string s)
         {
@@ -141,8 +142,9 @@ namespace PapierMache {
                 << path << " "
                 << protocol << std::endl;
             for (const auto &e : headers) {
-                oss << e.first << ": " << e.second << std ::endl;
+                oss << e.first << ": " << e.second << std::endl;
             }
+            oss << body << std::endl;
             return oss.str();
         }
     };

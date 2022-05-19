@@ -356,6 +356,8 @@ namespace PapierMache {
                 memset(buf, 0, sizeof(buf));
                 std::ostringstream recvData{""};
                 int count = 0;
+                size_t headerLength = 0;
+                HttpRequest request;
                 do {
                     ++count;
                     memset(recvBuf, 0, sizeof(recvBuf));
@@ -380,16 +382,48 @@ namespace PapierMache {
 
                         recvData << recvBuf;
                         //  仮の処理:終端が空行かであれば全て読み取ったとみなす
-                        size_t lastIndex = recvData.str().length() - 1;
-                        if (lastIndex > 4 &&
-                            int{recvData.str().at(lastIndex - 3)} == 13 &&
-                            int{recvData.str().at(lastIndex - 2)} == 10 &&
-                            int{recvData.str().at(lastIndex - 1)} == 13 &&
-                            int{recvData.str().at(lastIndex)} == 10) {
+                        std::string temp = recvData.str();
+                        auto itr = temp.begin();
+                        for (; itr != temp.end(); ++itr) {
+                            bool isBlankLine = true;
+                            if (char{*itr} != 13) {
+                                isBlankLine = false;
+                                continue;
+                            }
+                            if (itr + 1 == temp.end()) {
+                                isBlankLine = false;
+                                continue;
+                            }
+                            if (char{*(itr + 1)} != 10) {
+                                isBlankLine = false;
+                                continue;
+                            }
+                            if (itr + 2 == temp.end()) {
+                                isBlankLine = false;
+                                continue;
+                            }
+                            if (char{*(itr + 2)} != 13) {
+                                isBlankLine = false;
+                                continue;
+                            }
+                            if (itr + 3 == temp.end()) {
+                                isBlankLine = false;
+                                continue;
+                            }
+                            if (char{*(itr + 3)} != 10) {
+                                isBlankLine = false;
+                                continue;
+                            }
+                            if (isBlankLine) {
+                                headerLength = std::distance(temp.begin(), itr);
+                                break;
+                            }
+                        }
+
+                        if (headerLength > 0 && request.headers.size() == 0) {
 
                             // 受信データをhttpリクエストとして解析
                             std::istringstream iss{recvData.str()};
-                            HttpRequest request;
                             // 1行目
                             std::string line;
                             if (std::getline(iss, line)) {
@@ -410,9 +444,15 @@ namespace PapierMache {
                             std::ostringstream requestHeaderkey{""};
                             std::ostringstream requestHeaderValue{""};
                             char c = ' ';
-                            while (iss >> c) {
+                            while (iss.read(&c, 1)) {
                                 if (c != ':') {
                                     requestHeaderkey << c;
+                                    std::string check = requestHeaderkey.str();
+                                    if (check.length() == 2 &&
+                                        char{check[0]} == 13 &&
+                                        char{check[1]} == 10) {
+                                        break;
+                                    }
                                 }
                                 else {
                                     // 値の先頭の空白を読みとばす
@@ -432,9 +472,26 @@ namespace PapierMache {
                                     requestHeaderValue.clear(std::stringstream::goodbit);
                                 }
                             }
+                        }
+                        bool isEnd = false;
+                        if (request.headers.size() > 0 && request.headers.find("Content-Length") != request.headers.end()) {
+                            // TODO: リクエストボディの解析
+                            int contentLength = std::stoi(request.headers.at("Content-Length"));
+                            // ヘッダ + crlf + ボディの長さに至れば全て受信したとみなす
+                            if (headerLength + 4 + contentLength == recvData.str().length()) {
+                                request.body = recvData.str();
+                                request.body.erase(0, request.body.length() - contentLength);
+                                isEnd = true;
+                            }
+                        }
+                        else if (request.headers.size() > 0) {
+                            isEnd = true;
+                        }
+                        if (isEnd) {
                             // 受信完了したのでクリアする
                             recvData.str("");
                             recvData.clear(std::stringstream::goodbit);
+                            headerLength = 0;
 
                             // ハンドラーによるリクエスト処理
                             refSocketManager_.setStatus(clientSocket, SocketStatus::PROCESSING);
@@ -451,6 +508,7 @@ namespace PapierMache {
                                 hr = node.handler().handle(request);
                             }
 
+                            request = HttpRequest{};
                             // WEB_LOG << "----------------------" << count ;
                             //  仮の応答メッセージ(ヘッダ部分)
                             std::ostringstream oss{""};
