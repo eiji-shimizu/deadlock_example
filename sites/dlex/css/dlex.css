@@ -82,3 +82,25 @@
     border: 2px solid #77e1f4;
     background-color: #77e1f4;
 }
+
+.dlex_operation_button {
+    width: 160px;
+    margin: auto 10px 2px;
+    font-size: 16px;
+    border-radius: 3px;
+    border: 2px solid #d4db15;
+    background-color: #d4db15;
+}
+
+.dlex_operation_button:hover {
+    border: 2px solid #a0a503;
+}
+
+.dlex_operation_button:active {
+    border: 2px solid #eff37e;
+    background-color: #eff37e;
+}
+
+.under_line {
+    border-bottom: 2px solid black;
+}

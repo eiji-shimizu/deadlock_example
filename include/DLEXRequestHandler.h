@@ -39,10 +39,8 @@ namespace PapierMache {
         bool isValue = false;
         bool isInnerDq = false;
         std::string temp = s;
-        WEB_LOG << temp;
         temp = trim(temp, '{');
         temp = trim(temp, '}');
-        WEB_LOG << temp;
         for (const char c : temp) {
             if (c == ':') {
                 if (!isInnerDq) {
@@ -256,6 +254,132 @@ namespace PapierMache {
             hr.mediaType = "application/json";
             hr.responseBody = toBytesFromString(resultJson);
             DEBUG_LOG << "----------------------DLEXAddOrderHandler::handle END";
+            return hr;
+        }
+    };
+
+    class DLEXOperationHandler : public RequestHandler {
+    public:
+        DLEXOperationHandler(std::initializer_list<HttpRequestMethod> supportMethods)
+            : RequestHandler{supportMethods}
+        {
+        }
+
+        virtual ~DLEXOperationHandler() {}
+
+        virtual HandlerResult handle(const HttpRequest request)
+        {
+            WEB_LOG << "----------------------DLEXOperationHandler::handle";
+            if (!isSupport(request.method)) {
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::METHOD_NOT_ALLOWED;
+                return hr;
+            }
+
+            std::string temp = request.body;
+            WEB_LOG << temp;
+            temp = trim(temp, '[');
+            temp = trim(temp, ']');
+            auto it = temp.begin();
+            bool innerDq = false;
+            int leftCBCount = 0;
+            int rightCBCount = 0;
+            for (; it != temp.end(); ++it) {
+                if (*it == '"') {
+                    innerDq = !innerDq;
+                }
+                if (!innerDq) {
+                    if (*it == '{') {
+                        ++leftCBCount;
+                    }
+                    if (*it == '}') {
+                        ++rightCBCount;
+                    }
+                    if (*it == ',') {
+                        if (leftCBCount == rightCBCount) {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            std::string order1;
+            std::string order2;
+            if (it != temp.begin() && it != temp.end()) {
+                size_t index = std::distance(temp.begin(), it);
+                order1 = temp;
+                order1.erase(index, order1.length() - index);
+                // // 現在箇所は','があるのでインクリメント
+                ++index;
+                if (index < temp.length()) {
+                    order2 = temp;
+                    order2.erase(0, index);
+                }
+            }
+            std::map<std::string, std::string> data1 = parseOrderJson(order1);
+            std::map<std::string, std::string> data2 = parseOrderJson(order2);
+
+            for (const auto &e : data1) {
+                WEB_LOG << e.first << "," << e.second;
+            }
+            for (const auto &e : data2) {
+                WEB_LOG << e.first << "," << e.second;
+            }
+
+            DbStuff::Connection con = db().getConnection();
+            Cleaner cleaner{con};
+            DbStuff::Driver driver(con);
+            std::string user = getValue<std::string>(webConfiguration, "database", "USER_NAME");
+            std::string password = getValue<std::string>(webConfiguration, "database", "USER_NAME");
+            DbStuff::Driver::Result r = driver.sendQuery("please:user " + getValue<std::string>(webConfiguration, "database", "USER_NAME") +
+                                                         " " + getValue<std::string>(webConfiguration, "database", "PASSWORD"));
+
+            r = driver.sendQuery("please:transaction");
+            if (!r.isSucceed) {
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_3")) + "}";
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::OK;
+                hr.mediaType = "application/json";
+                hr.responseBody = toBytesFromString(resultJson);
+                return hr;
+            }
+            std::string now = getLocalTimeStr();
+            r = driver.sendQuery("please:update  order (PRODUCT_NAME=" + setDq(data1.at("productName")) + ", DATETIME=" + setDq(now) + ") (ORDER_NAME=" + setDq(data1.at("orderName")) + ")");
+            if (!r.isSucceed) {
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_3")) + "}";
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::OK;
+                hr.mediaType = "application/json";
+                hr.responseBody = toBytesFromString(resultJson);
+                return hr;
+            }
+            now = getLocalTimeStr();
+            r = driver.sendQuery("please:update  order (PRODUCT_NAME=" + setDq(data2.at("productName")) + ", DATETIME=" + setDq(now) + ") (ORDER_NAME=" + setDq(data2.at("orderName")) + ")");
+            if (!r.isSucceed) {
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_3")) + "}";
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::OK;
+                hr.mediaType = "application/json";
+                hr.responseBody = toBytesFromString(resultJson);
+                return hr;
+            }
+            r = driver.sendQuery("please:commit");
+            if (!r.isSucceed) {
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_3")) + "}";
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::OK;
+                hr.mediaType = "application/json";
+                hr.responseBody = toBytesFromString(resultJson);
+                return hr;
+            }
+            bool b = con.close();
+            HandlerResult hr{};
+            hr.status = HttpResponseStatusCode::OK;
+            std::string resultJson = "{\"result\": 0, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "MESSAGE_4")) + "}";
+            hr.status = HttpResponseStatusCode::OK;
+            hr.mediaType = "application/json";
+            hr.responseBody = toBytesFromString(resultJson);
+            WEB_LOG << "----------------------DLEXOperationHandler::handle END";
             return hr;
         }
     };

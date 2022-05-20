@@ -21,7 +21,8 @@ namespace PapierMache {
         CONNECT,
         OPTIONS,
         TRACE,
-        PATCH
+        PATCH,
+        UNKNOWN
     };
 
     enum class HttpResponseStatusCode {
@@ -74,7 +75,7 @@ namespace PapierMache {
     }
 
     struct HttpRequest {
-        HttpRequestMethod method;
+        HttpRequestMethod method = HttpRequestMethod::UNKNOWN;
         std::string path;
         std::string protocol;
         std::map<std::string, std::string> headers;
@@ -103,6 +104,8 @@ namespace PapierMache {
                 method = HttpRequestMethod::TRACE;
             else if (s == "PATCH")
                 method = HttpRequestMethod::PATCH;
+            else if (s == "UNKNOWN")
+                method = HttpRequestMethod::UNKNOWN;
             else
                 throw std::runtime_error("invalid http request method.");
         }
@@ -131,6 +134,8 @@ namespace PapierMache {
                 return "TRACE";
             case HttpRequestMethod::PATCH:
                 return "PATCH";
+            case HttpRequestMethod::UNKNOWN:
+                return "UNKNOWN";
             }
             throw std::runtime_error("invalid http request method.");
         }

@@ -379,8 +379,9 @@ namespace PapierMache {
                     }
 
                     if (result > 0) {
-
-                        recvData << recvBuf;
+                        for (int i = 0; i < result; ++i) {
+                            recvData << recvBuf[i];
+                        }
                         //  仮の処理:終端が空行かであれば全て読み取ったとみなす
                         std::string temp = recvData.str();
                         auto itr = temp.begin();
@@ -668,6 +669,7 @@ namespace PapierMache {
                 handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_DLEX")).addChildNode({"top", std::make_unique<DLEXRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
                 handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_DLEX")).addChildNode({"getorder", std::make_unique<DLEXOrderHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
                 handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_DLEX")).addChildNode({"addorder", std::make_unique<DLEXAddOrderHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::POST}))});
+                handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_DLEX")).addChildNode({"operation", std::make_unique<DLEXOperationHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::POST}))});
                 // helloworldのRequestHandlerのセット
                 handlerTree_.addRootNode({getValue<std::string>(webConfiguration, "sites", "ROOT_HELLOWORLD"), nullptr});
                 handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_HELLOWORLD")).addChildNode({"top", std::make_unique<HelloWorldRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
@@ -767,9 +769,6 @@ namespace PapierMache {
                 SOCKET clientSocket = INVALID_SOCKET;
                 ThreadsMap threadsMap{getValue<int>(webConfiguration, "threadsMap", "CLEAN_UP_POINT")};
 
-                // SocketManagerを生成して開始する
-                // SocketManager socketManager{getValue<int>(webConfiguration, "socketManager", "MAX"),
-                //                             getValue<int>(webConfiguration, "socketManager", "TIMEOUT")};
                 pSocketManager_->startMonitor();
                 while (1) {
                     if (toBeStopped_.load()) {
