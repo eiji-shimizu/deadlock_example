@@ -37,6 +37,8 @@ const original = {
 }
 
 function getOrder(e) {
+    document.getElementById('messages').style.display = 'none';
+    document.getElementById('errormessages').style.display = 'none';
     getData('./getorder')
         .then(data => {
             //alert(data.message);
@@ -54,6 +56,16 @@ function getOrder(e) {
                 }
             }
             document.getElementById('orderdata').innerHTML = contents;
+            if (data.message && data.result != null) {
+                if (data.message != '' && data.result == 0) {
+                    document.getElementById('messages').innerHTML = '<p>' + data.message + '</p>';
+                    document.getElementById('messages').style.display = 'block';
+                }
+                if (data.message != '' && data.result != 0) {
+                    document.getElementById('errormessages').innerHTML = '<p>' + data.message + '</p>';
+                    document.getElementById('errormessages').style.display = 'block';
+                }
+            }
         });
 }
 
@@ -63,9 +75,20 @@ function addOrder(e) {
     order.customerName = document.getElementById('customerName').value;
     order.productName = document.getElementById('productName').value;
     console.log(order);
+    document.getElementById('messages').style.display = 'none';
+    document.getElementById('errormessages').style.display = 'none';
     postData('./addorder', order)
         .then(data => {
-            //alert(data.message);
+            if (data.message && data.result != null) {
+                if (data.message != '' && data.result == 0) {
+                    document.getElementById('messages').innerHTML = '<p>' + data.message + '</p>';
+                    document.getElementById('messages').style.display = 'block';
+                }
+                if (data.message != '' && data.result != 0) {
+                    document.getElementById('errormessages').innerHTML = '<p>' + data.message + '</p>';
+                    document.getElementById('errormessages').style.display = 'block';
+                }
+            }
         });
 }
 

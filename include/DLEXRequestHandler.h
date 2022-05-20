@@ -123,7 +123,7 @@ namespace PapierMache {
 
             r = driver.sendQuery("please:transaction");
             if (!r.isSucceed) {
-                std::string resultJson = "{\"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_1")) + "}";
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_1")) + "}";
                 HandlerResult hr{};
                 hr.status = HttpResponseStatusCode::OK;
                 hr.mediaType = "application/json";
@@ -132,7 +132,7 @@ namespace PapierMache {
             }
             r = driver.sendQuery("please: select order");
             if (!r.isSucceed) {
-                std::string resultJson = "{\"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_1")) + "}";
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_1")) + "}";
                 HandlerResult hr{};
                 hr.status = HttpResponseStatusCode::OK;
                 hr.mediaType = "application/json";
@@ -178,7 +178,12 @@ namespace PapierMache {
                 }
             }
             data << "]";
-            std::string resultJson = "{\"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "MESSAGE_1")) + "," +
+            std::string result = "0";
+            std::string messageCode = "MESSAGE_1";
+            if (r.rows.size() == 0) {
+                messageCode = "MESSAGE_3";
+            }
+            std::string resultJson = "{\"result\": " + result + ", \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", messageCode)) + "," +
                                      "\"data\": " + data.str() + "}";
             hr.status = HttpResponseStatusCode::OK;
             hr.mediaType = "application/json";
@@ -205,7 +210,7 @@ namespace PapierMache {
                 hr.status = HttpResponseStatusCode::METHOD_NOT_ALLOWED;
                 return hr;
             }
-            
+
             std::map<std::string, std::string> data = parseOrderJson(request.body);
 
             DbStuff::Connection con = db().getConnection();
@@ -218,7 +223,7 @@ namespace PapierMache {
 
             r = driver.sendQuery("please:transaction");
             if (!r.isSucceed) {
-                std::string resultJson = "{\"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_2")) + "}";
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_2")) + "}";
                 HandlerResult hr{};
                 hr.status = HttpResponseStatusCode::OK;
                 hr.mediaType = "application/json";
@@ -227,7 +232,7 @@ namespace PapierMache {
             }
             r = driver.sendQuery("please:insert  order (ORDER_NAME=" + setDq(data.at("orderName")) + ", CUSTOMER_NAME=" + setDq(data.at("customerName")) + ", PRODUCT_NAME=" + setDq(data.at("productName")) + ")");
             if (!r.isSucceed) {
-                std::string resultJson = "{\"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_2")) + "}";
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_2")) + "}";
                 HandlerResult hr{};
                 hr.status = HttpResponseStatusCode::OK;
                 hr.mediaType = "application/json";
@@ -236,7 +241,7 @@ namespace PapierMache {
             }
             r = driver.sendQuery("please:commit");
             if (!r.isSucceed) {
-                std::string resultJson = "{\"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_2")) + "}";
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_2")) + "}";
                 HandlerResult hr{};
                 hr.status = HttpResponseStatusCode::OK;
                 hr.mediaType = "application/json";
@@ -246,7 +251,7 @@ namespace PapierMache {
             bool b = con.close();
             HandlerResult hr{};
             hr.status = HttpResponseStatusCode::OK;
-            std::string resultJson = "{\"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "MESSAGE_1")) + "}";
+            std::string resultJson = "{\"result\": 0, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "MESSAGE_2")) + "}";
             hr.status = HttpResponseStatusCode::OK;
             hr.mediaType = "application/json";
             hr.responseBody = toBytesFromString(resultJson);

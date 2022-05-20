@@ -19,6 +19,26 @@
     border: 1px solid #ddd;
 }
 
+#messages {
+    display: none;
+    font-size: 18px;
+    width: 900px;
+    border-radius: 3px;
+    border: 2px solid rgb(2, 159, 104);
+    background-color: rgb(166, 238, 213);
+    padding-left: 5px;
+}
+
+#errormessages {
+    display: none;
+    font-size: 18px;
+    width: 900px;
+    border-radius: 3px;
+    border: 2px solid rgb(182, 23, 23);
+    background-color: rgb(247, 221, 221);
+    padding-left: 5px;
+}
+
 .dlex_text_small {
     width: 100px;
 }
