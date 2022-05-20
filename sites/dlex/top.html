@@ -16,6 +16,31 @@
 
     </div>
     <div class="flex-container">
+        <div class="flex-container_vertical">
+            <div>
+                <p>受注テーブル</p>
+            </div>
+            <div class="flex-container">
+                <div style="width:100px;" class="t_header">受注名</div>
+                <div style="width:200px;" class="t_header">お客様</div>
+                <div style="width:300px;" class="t_header">商品名</div>
+                <div style="width:300px;" class="t_header">更新日時</div>
+            </div>
+            <div id="orderdata">
+                <div class="flex-container">
+                    <div style="width:100px;" class="t_data">order1</div>
+                    <div style="width:200px;" class="t_data">お客様A</div>
+                    <div style="width:300px;" class="t_data">商品名テスト</div>
+                    <div style="width:300px;" class="t_data">2022:5:20:11:46:28:360</div>
+                </div>
+            </div>
+        </div>
+        <div>
+            <input type="button" id="getButton" name="getButton" value="取得" class="dlex_button">
+        </div>
+    </div>
+    <br>
+    <div class="flex-container">
         <div>
             <label for="orderName">受注名:</label>
             <input type="text" id="orderName" name="orderName" class="dlex_text dlex_text_small">

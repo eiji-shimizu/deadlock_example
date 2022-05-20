@@ -80,6 +80,21 @@ namespace PapierMache {
         return result;
     }
 
+    class Cleaner {
+    public:
+        Cleaner(DbStuff::Connection &con)
+            : con_{con}
+        {
+        }
+        ~Cleaner()
+        {
+            CATCH_ALL_EXCEPTIONS(con_.close();)
+        }
+
+    private:
+        DbStuff::Connection &con_;
+    };
+
     class DLEXOrderHandler : public RequestHandler {
     public:
         DLEXOrderHandler(std::initializer_list<HttpRequestMethod> supportMethods)
@@ -92,8 +107,14 @@ namespace PapierMache {
         virtual HandlerResult handle(const HttpRequest request)
         {
             DEBUG_LOG << "----------------------DLEXOrderHandler::handle";
+            if (!isSupport(request.method)) {
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::METHOD_NOT_ALLOWED;
+                return hr;
+            }
 
             DbStuff::Connection con = db().getConnection();
+            Cleaner cleaner{con};
             DbStuff::Driver driver(con);
             std::string user = getValue<std::string>(webConfiguration, "database", "USER_NAME");
             std::string password = getValue<std::string>(webConfiguration, "database", "USER_NAME");
@@ -179,13 +200,16 @@ namespace PapierMache {
         virtual HandlerResult handle(const HttpRequest request)
         {
             DEBUG_LOG << "----------------------DLEXAddOrderHandler::handle";
-
-            std::map<std::string, std::string> data = parseOrderJson(request.body);
-            for (const auto &e : data) {
-                WEB_LOG << e.first << ", " << e.second;
+            if (!isSupport(request.method)) {
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::METHOD_NOT_ALLOWED;
+                return hr;
             }
+            
+            std::map<std::string, std::string> data = parseOrderJson(request.body);
 
             DbStuff::Connection con = db().getConnection();
+            Cleaner cleaner{con};
             DbStuff::Driver driver(con);
             std::string user = getValue<std::string>(webConfiguration, "database", "USER_NAME");
             std::string password = getValue<std::string>(webConfiguration, "database", "USER_NAME");
@@ -201,7 +225,7 @@ namespace PapierMache {
                 hr.responseBody = toBytesFromString(resultJson);
                 return hr;
             }
-            r = driver.sendQuery("please:insert  order (ORDER_NAME=" + setDq("order1") + ", CUSTOMER_NAME=" + setDq("お客様A") + ", PRODUCT_NAME=" + setDq("商品いろはにほへと") + ")");
+            r = driver.sendQuery("please:insert  order (ORDER_NAME=" + setDq(data.at("orderName")) + ", CUSTOMER_NAME=" + setDq(data.at("customerName")) + ", PRODUCT_NAME=" + setDq(data.at("productName")) + ")");
             if (!r.isSucceed) {
                 std::string resultJson = "{\"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_2")) + "}";
                 HandlerResult hr{};

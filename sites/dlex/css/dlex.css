@@ -4,6 +4,21 @@
     align-items: flex-end;
 }
 
+.flex-container_vertical {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.t_header {
+    background-color: lightblue;
+    border: 1px solid #ddd;
+}
+
+.t_data {
+    border: 1px solid #ddd;
+}
+
 .dlex_text_small {
     width: 100px;
 }

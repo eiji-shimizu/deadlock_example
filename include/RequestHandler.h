@@ -63,6 +63,11 @@ namespace PapierMache {
         virtual HandlerResult handle(const HttpRequest request)
         {
             DEBUG_LOG << "----------------------DefaultHandler::handle";
+            if (!isSupport(request.method)) {
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::METHOD_NOT_ALLOWED;
+                return hr;
+            }
 
             std::filesystem::path resourcePath{getValue<std::string>(webConfiguration, "webServer", "ROOT")};
             if (request.path == "/") {
