@@ -630,13 +630,13 @@ namespace PapierMache {
                 WEB_LOG << "~WebServer(): listen socket : " << listenSocket_ << " closesocket BEFORE";
                 closesocket(listenSocket_);
                 WEB_LOG << "~WebServer(): listen socket : " << listenSocket_ << " closesocket AFTER";
-                WEB_LOG << "~WebServer(): WSACleanup() BEFORE";
-                WSACleanup();
-                WEB_LOG << "~WebServer(): WSACleanup() AFTER";
                 if (thread_.joinable()) {
                     WEB_LOG << "~WebServer(): thread_.join() BEFORE";
                     thread_.join();
                 }
+                WEB_LOG << "~WebServer(): WSACleanup() BEFORE";
+                WSACleanup();
+                WEB_LOG << "~WebServer(): WSACleanup() AFTER";
             }
             catch (std::exception &e) {
                 CATCH_ALL_EXCEPTIONS(LOG << "~WebServer(): " << e.what();)

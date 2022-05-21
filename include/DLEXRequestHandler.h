@@ -336,7 +336,7 @@ namespace PapierMache {
 
         virtual HandlerResult handle(const HttpRequest request)
         {
-            WEB_LOG << "----------------------DLEXOperationHandler::handle";
+            DEBUG_LOG << "----------------------DLEXOperationHandler::handle";
             if (!isSupport(request.method)) {
                 HandlerResult hr{};
                 hr.status = HttpResponseStatusCode::METHOD_NOT_ALLOWED;
@@ -344,7 +344,6 @@ namespace PapierMache {
             }
 
             std::string temp = request.body;
-            WEB_LOG << temp;
             temp = trim(temp, '[');
             temp = trim(temp, ']');
             auto it = temp.begin();
@@ -385,13 +384,6 @@ namespace PapierMache {
             }
             std::map<std::string, std::string> data1 = parseOrderJson(order1);
             std::map<std::string, std::string> data2 = parseOrderJson(order2);
-
-            for (const auto &e : data1) {
-                WEB_LOG << e.first << "," << e.second;
-            }
-            for (const auto &e : data2) {
-                WEB_LOG << e.first << "," << e.second;
-            }
 
             DbStuff::Connection con = db().getConnection();
             controller.add(con);
@@ -449,7 +441,7 @@ namespace PapierMache {
             hr.status = HttpResponseStatusCode::OK;
             hr.mediaType = "application/json";
             hr.responseBody = toBytesFromString(resultJson);
-            WEB_LOG << "----------------------DLEXOperationHandler::handle END";
+            DEBUG_LOG << "----------------------DLEXOperationHandler::handle END";
             return hr;
         }
     };

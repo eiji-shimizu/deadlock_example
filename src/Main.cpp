@@ -9,10 +9,7 @@
 #include "WebServer.h"
 
 #include <iostream>
-#include <mutex>
-#include <sstream>
 #include <string>
-#include <vector>
 
 PapierMache::Logger<std::ostream> logger{std::cout};
 

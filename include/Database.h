@@ -803,8 +803,8 @@ namespace PapierMache::DbStuff {
             }
 
             std::thread t{[&condition = conditions_.at(i), &threadsMap = threadsMapRef, this] {
+                std::string id;
                 try {
-                    std::string id;
                     { // 読み込みロック
                         std::shared_lock<std::shared_mutex> lock(sharedMt_);
                         id = std::get<0>(condition);
@@ -1127,6 +1127,7 @@ namespace PapierMache::DbStuff {
                             // TODO: エラー内容を送信する
                             DB_LOG << e.what() << FILE_INFO;
                             Result r{-1, "", "", e.what()};
+                            response = r.toBytes();
                             setData(id, std::cref(response));
                             toNotify(id);
                             continue;
@@ -1135,6 +1136,7 @@ namespace PapierMache::DbStuff {
                             // TODO: エラー内容を送信する
                             DB_LOG << e.what() << FILE_INFO;
                             Result r{-1, "", "", e.what()};
+                            response = r.toBytes();
                             setData(id, std::cref(response));
                             toNotify(id);
                             continue;
@@ -1146,10 +1148,22 @@ namespace PapierMache::DbStuff {
                     }
                 }
                 catch (std::exception &e) {
-                    CATCH_ALL_EXCEPTIONS(LOG << e.what() << FILE_INFO;)
+                    CATCH_ALL_EXCEPTIONS({
+                        Result r({-1, "", "", e.what()});
+                        std::vector<std::byte> response = r.toBytes();
+                        setData(id, std::cref(response));
+                        toNotify(id);
+                        LOG << e.what() << FILE_INFO;
+                    })
                 }
                 catch (...) {
-                    CATCH_ALL_EXCEPTIONS(LOG << "unexpected error or SEH exception." << FILE_INFO;)
+                    CATCH_ALL_EXCEPTIONS({
+                        Result r({-1, "", "", "unexpected error or SEH exception."});
+                        std::vector<std::byte> response = r.toBytes();
+                        setData(id, std::cref(response));
+                        toNotify(id);
+                        LOG << "unexpected error or SEH exception." << FILE_INFO;
+                    })
                 }
             }};
             return std::move(t);
