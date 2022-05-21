@@ -1,6 +1,7 @@
 #include "General.h"
 
 #include "Common.h"
+#include "Connections.h"
 #include "Database.h"
 #include "Logger.h"
 #include "UUID.h"
@@ -8,8 +9,10 @@
 #include "WebServer.h"
 
 #include <iostream>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <vector>
 
 PapierMache::Logger<std::ostream> logger{std::cout};
 
@@ -17,60 +20,7 @@ const std::map<std::string, std::map<std::string, std::string>> webConfiguration
 
 PapierMache::DbStuff::Database *database;
 
-void testFunc0(PapierMache::DbStuff::Connection con, std::string name, std::string message)
-{
-    std::vector<std::byte> data;
-    for (const char c : message) {
-        data.push_back(static_cast<std::byte>(c));
-    }
-    std::ostringstream oss{""};
-    con.send(data);
-    bool requestResult = con.request();
-    if (!requestResult) {
-        LOG << name << "error";
-        throw std::runtime_error{name + ": request() failed"};
-    }
-    if (requestResult) {
-        LOG << name << ": wait() BEFORE";
-        int waitResult = con.wait();
-        LOG << name << ": wait() AFTER";
-        if (waitResult == 0) {
-            con.receive(data);
-
-            for (const auto b : data) {
-                oss << static_cast<char>(b);
-            }
-            LOG << name << ": " << con.id() << " " << oss.str();
-        }
-        else if (waitResult == -1) {
-            // リトライ
-            LOG << name << ": wait() failed first";
-            if (con.wait() == 0) {
-                con.receive(data);
-                for (const auto b : data) {
-                    oss << static_cast<char>(b);
-                }
-                LOG << name << ": " << con.id() << " " << oss.str();
-            }
-            else {
-                throw std::runtime_error{name + ": wait() failed twice."};
-            }
-        }
-    }
-}
-
-PapierMache::DbStuff::Driver::Result testFunc(PapierMache::DbStuff::Connection con, std::string name, std::string query)
-{
-    PapierMache::DbStuff::Driver driver{con};
-    const auto result = driver.sendQuery(query);
-    if (!result.isSucceed) {
-        LOG << result.message;
-    }
-    if (result.isSucceed) {
-        LOG << result.message;
-    }
-    return result;
-}
+PapierMache::Connections controller;
 
 int main()
 {
@@ -104,10 +54,15 @@ int main()
             LOG << "server start failed.";
             return 1;
         }
-        char quit = ' ';
-        while (std::cin >> quit) {
-            if (quit == 'q')
+        char c = ' ';
+        while (std::cin >> c) {
+            if (c == 'q') {
                 break;
+            }
+            else if (c == 'd') {
+                controller.terminateAll();
+                LOG << "controller.terminateAll";
+            }
         }
         LOG << "application finish.";
         return 0;

@@ -670,6 +670,7 @@ namespace PapierMache {
                 handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_DLEX")).addChildNode({"getorder", std::make_unique<DLEXOrderHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});
                 handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_DLEX")).addChildNode({"addorder", std::make_unique<DLEXAddOrderHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::POST}))});
                 handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_DLEX")).addChildNode({"operation", std::make_unique<DLEXOperationHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::POST}))});
+                handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_DLEX")).addChildNode({"delete", std::make_unique<DLEXDeleteOrderHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::POST}))});
                 // helloworldのRequestHandlerのセット
                 handlerTree_.addRootNode({getValue<std::string>(webConfiguration, "sites", "ROOT_HELLOWORLD"), nullptr});
                 handlerTree_.findHandlerNode(getValue<std::string>(webConfiguration, "sites", "ROOT_HELLOWORLD")).addChildNode({"top", std::make_unique<HelloWorldRootHandler>(std::initializer_list<HttpRequestMethod>({HttpRequestMethod::GET}))});

@@ -92,6 +92,25 @@ function addOrder(e) {
         });
 }
 
+function deleteAll(e) {
+    postData('./delete', {})
+        .then(data => {
+            document.getElementById('messages').innerHTML = '';
+            document.getElementById('errormessages').innerHTML = '';
+            if (data.message && data.result != null) {
+                if (data.message != '' && data.result == 0) {
+                    document.getElementById('messages').innerHTML = '<p>' + data.message + '</p>';
+                    document.getElementById('messages').style.display = 'block';
+                }
+                if (data.message != '' && data.result != 0) {
+                    document.getElementById('errormessages').innerHTML = '<p>' + data.message + '</p>';
+                    document.getElementById('errormessages').style.display = 'block';
+                }
+            }
+            getOrder(e);
+        });
+}
+
 function operation(e) {
     let orderNameA = 'orderName' + String(this.no) + '1';
     let orderNameB = 'orderName' + String(this.no) + '2';
@@ -127,5 +146,6 @@ function operation(e) {
 
 document.getElementById('getButton').addEventListener('click', getOrder);
 document.getElementById('addButton').addEventListener('click', addOrder);
+document.getElementById('deleteButton').addEventListener('click', deleteAll);
 document.getElementById('operationButton1').addEventListener('click', { no: 1, handleEvent: operation });
 document.getElementById('operationButton2').addEventListener('click', { no: 2, handleEvent: operation });

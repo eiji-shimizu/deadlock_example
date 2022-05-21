@@ -3,6 +3,8 @@
 
 #include "General.h"
 
+#include "Common.h"
+#include "Connections.h"
 #include "Database.h"
 #include "RequestHandler.h"
 
@@ -258,6 +260,71 @@ namespace PapierMache {
         }
     };
 
+    class DLEXDeleteOrderHandler : public RequestHandler {
+    public:
+        DLEXDeleteOrderHandler(std::initializer_list<HttpRequestMethod> supportMethods)
+            : RequestHandler{supportMethods}
+        {
+        }
+
+        virtual ~DLEXDeleteOrderHandler() {}
+
+        virtual HandlerResult handle(const HttpRequest request)
+        {
+            DEBUG_LOG << "----------------------DLEXDeleteOrderHandler::handle";
+            if (!isSupport(request.method)) {
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::METHOD_NOT_ALLOWED;
+                return hr;
+            }
+
+            DbStuff::Connection con = db().getConnection();
+            Cleaner cleaner{con};
+            DbStuff::Driver driver(con);
+            std::string user = getValue<std::string>(webConfiguration, "database", "USER_NAME");
+            std::string password = getValue<std::string>(webConfiguration, "database", "USER_NAME");
+            DbStuff::Driver::Result r = driver.sendQuery("please:user " + getValue<std::string>(webConfiguration, "database", "USER_NAME") +
+                                                         " " + getValue<std::string>(webConfiguration, "database", "PASSWORD"));
+
+            r = driver.sendQuery("please:transaction");
+            if (!r.isSucceed) {
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_4")) + "}";
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::OK;
+                hr.mediaType = "application/json";
+                hr.responseBody = toBytesFromString(resultJson);
+                return hr;
+            }
+            r = driver.sendQuery("please:delete  order )");
+            if (!r.isSucceed) {
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_4")) + "}";
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::OK;
+                hr.mediaType = "application/json";
+                hr.responseBody = toBytesFromString(resultJson);
+                return hr;
+            }
+            r = driver.sendQuery("please:commit");
+            if (!r.isSucceed) {
+                std::string resultJson = "{\"result\": -1, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "ERROR_4")) + "}";
+                HandlerResult hr{};
+                hr.status = HttpResponseStatusCode::OK;
+                hr.mediaType = "application/json";
+                hr.responseBody = toBytesFromString(resultJson);
+                return hr;
+            }
+            bool b = con.close();
+            HandlerResult hr{};
+            hr.status = HttpResponseStatusCode::OK;
+            std::string resultJson = "{\"result\": 0, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "MESSAGE_5")) + "}";
+            hr.status = HttpResponseStatusCode::OK;
+            hr.mediaType = "application/json";
+            hr.responseBody = toBytesFromString(resultJson);
+            DEBUG_LOG << "----------------------DLEXDeleteOrderHandler::handle END";
+            return hr;
+        }
+    };
+
     class DLEXOperationHandler : public RequestHandler {
     public:
         DLEXOperationHandler(std::initializer_list<HttpRequestMethod> supportMethods)
@@ -327,6 +394,7 @@ namespace PapierMache {
             }
 
             DbStuff::Connection con = db().getConnection();
+            controller.add(con);
             Cleaner cleaner{con};
             DbStuff::Driver driver(con);
             std::string user = getValue<std::string>(webConfiguration, "database", "USER_NAME");
@@ -353,6 +421,8 @@ namespace PapierMache {
                 hr.responseBody = toBytesFromString(resultJson);
                 return hr;
             }
+            // デッドロックを起こしやすくするためにsleepする
+            std::this_thread::sleep_for(std::chrono::seconds(2));
             now = getLocalTimeStr();
             r = driver.sendQuery("please:update  order (PRODUCT_NAME=" + setDq(data2.at("productName")) + ", DATETIME=" + setDq(now) + ") (ORDER_NAME=" + setDq(data2.at("orderName")) + ")");
             if (!r.isSucceed) {

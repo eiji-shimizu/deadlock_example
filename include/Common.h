@@ -26,6 +26,8 @@ namespace PapierMache {
     template <typename outT>
     class Logger;
 
+    class Connections;
+
     namespace DbStuff {
         class Database;
     }
@@ -34,6 +36,8 @@ namespace PapierMache {
 extern PapierMache::Logger<std::ostream> logger;
 
 extern const std::map<std::string, std::map<std::string, std::string>> webConfiguration;
+
+extern PapierMache::Connections controller;
 
 extern PapierMache::DbStuff::Database *database;
 

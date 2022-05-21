@@ -101,6 +101,24 @@
     background-color: #eff37e;
 }
 
+.dlex_delete_button {
+    width: 300;
+    margin: auto 10px 2px;
+    font-size: 16px;
+    border-radius: 3px;
+    border: 2px solid #ec4242;
+    background-color: #ec4242;
+}
+
+.dlex_delete_button:hover {
+    border: 2px solid #7e0404;
+}
+
+.dlex_delete_button:active {
+    border: 2px solid #f07878;
+    background-color: #f07878;
+}
+
 .under_line {
     border-bottom: 2px solid black;
 }
