@@ -538,7 +538,10 @@ namespace PapierMache {
                                     ++index;
                                 }
                                 else {
+#pragma warning(push)
+#pragma warning(disable : 4267)
                                     iSendResult = send(clientSocket, buf, index, 0);
+#pragma warning(pop)
                                     if (iSendResult == SOCKET_ERROR) {
                                         refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
                                         WEB_LOG << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << FILE_INFO;
@@ -549,7 +552,10 @@ namespace PapierMache {
                                 }
                             }
                             if (index > 0) {
+#pragma warning(push)
+#pragma warning(disable : 4267)
                                 iSendResult = send(clientSocket, buf, index, 0);
+#pragma warning(pop)
                                 if (iSendResult == SOCKET_ERROR) {
                                     refSocketManager_.setStatus(clientSocket, SocketStatus::TO_CLOSE);
                                     WEB_LOG << "socket : " << clientSocket << " send failed with error: " << WSAGetLastError() << FILE_INFO;

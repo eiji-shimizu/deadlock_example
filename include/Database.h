@@ -715,7 +715,7 @@ namespace PapierMache::DbStuff {
             // ""の内部にいる場合にtrue
             bool isInnerDq = false;
             bool isCandidate = false;
-            int i = start;
+            size_t i = start;
             for (; i < data.size(); ++i) {
                 if (static_cast<char>(data[i]) == '\\') {
                     isCandidate = false;

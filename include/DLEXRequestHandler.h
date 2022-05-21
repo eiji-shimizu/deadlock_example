@@ -139,7 +139,7 @@ namespace PapierMache {
                 hr.responseBody = toBytesFromString(resultJson);
                 return hr;
             }
-            bool b = con.close();
+            con.close();
             HandlerResult hr{};
             hr.status = HttpResponseStatusCode::OK;
 
@@ -147,7 +147,7 @@ namespace PapierMache {
             for (const auto &e : r.rows) {
                 std::ostringstream oss{""};
                 oss << "{";
-                int count = e.size();
+                size_t count = e.size();
                 for (const auto &p : e) {
                     if (p.first != "password") {
                         std::ostringstream value{""};
@@ -169,7 +169,7 @@ namespace PapierMache {
             }
             std::ostringstream data{""};
             data << "[";
-            int count = v.size();
+            size_t count = v.size();
             for (const std::string e : v) {
                 data << e;
                 --count;
@@ -248,7 +248,7 @@ namespace PapierMache {
                 hr.responseBody = toBytesFromString(resultJson);
                 return hr;
             }
-            bool b = con.close();
+            con.close();
             HandlerResult hr{};
             hr.status = HttpResponseStatusCode::OK;
             std::string resultJson = "{\"result\": 0, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "MESSAGE_2")) + "}";
@@ -313,7 +313,7 @@ namespace PapierMache {
                 hr.responseBody = toBytesFromString(resultJson);
                 return hr;
             }
-            bool b = con.close();
+            con.close();
             HandlerResult hr{};
             hr.status = HttpResponseStatusCode::OK;
             std::string resultJson = "{\"result\": 0, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "MESSAGE_5")) + "}";
@@ -434,7 +434,7 @@ namespace PapierMache {
                 hr.responseBody = toBytesFromString(resultJson);
                 return hr;
             }
-            bool b = con.close();
+            con.close();
             HandlerResult hr{};
             hr.status = HttpResponseStatusCode::OK;
             std::string resultJson = "{\"result\": 0, \"message\": " + setDq(getValue<std::string>(webConfiguration, "messages", "MESSAGE_4")) + "}";

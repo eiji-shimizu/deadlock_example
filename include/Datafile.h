@@ -194,6 +194,8 @@ namespace PapierMache::DbStuff {
                     const std::vector<std::byte> &data,
                     const std::vector<std::byte> &where)
         {
+#pragma warning(push)
+#pragma warning(disable : 4267)
             std::map<std::string, std::vector<std::byte>> mData = parseKeyValueVector(data);
             std::map<std::string, std::vector<std::byte>> mWhere = parseKeyValueVector(where);
             HANDLE h;
@@ -401,6 +403,7 @@ namespace PapierMache::DbStuff {
                 }
             } // while loop end
             return true;
+#pragma warning(pop)
         };
 
         // この関数名はdeleteであるべきだがc++の予約語と重なるのでupdateとする
@@ -413,6 +416,8 @@ namespace PapierMache::DbStuff {
 
         std::vector<std::map<std::string, std::vector<std::byte>>> select(const TRANSACTION_ID transactionId, const std::vector<std::byte> &where)
         {
+#pragma warning(push)
+#pragma warning(disable : 4267)
             std::map<std::string, std::vector<std::byte>> mWhere = parseKeyValueVector(where);
             HANDLE h;
             BOOL bErrorFlag = FALSE;
@@ -552,6 +557,7 @@ namespace PapierMache::DbStuff {
                 }
             } // while loop end
             return result;
+#pragma warning(pop)
         }
 
         bool setToTerminate(const TRANSACTION_ID transactionId)
@@ -783,10 +789,13 @@ namespace PapierMache::DbStuff {
             // 現在の行における現在位置に対応する次の行の位置を返す
             LONGLONG nextRow(LONGLONG current) const
             {
+#pragma warning(push)
+#pragma warning(disable : 4018)
                 if (current > LLONG_MAX - (controlDataSize() + columnSizeTotal())) {
                     return LLONG_MAX;
                 }
                 return current + controlDataSize() + columnSizeTotal();
+#pragma warning(pop)
             }
 
             // 引数の列名の行頭からのオフセットを返す
@@ -1050,6 +1059,8 @@ namespace PapierMache::DbStuff {
         // commit関数からのみ呼び出すこと
         void write(const TRANSACTION_ID id)
         {
+#pragma warning(push)
+#pragma warning(disable : 4267)
             DWORD dwBytesWritten = 0;
             BOOL bErrorFlag = FALSE;
             for (TemporaryData &td : temp_) {
@@ -1100,7 +1111,7 @@ namespace PapierMache::DbStuff {
                             if (FALSE == bErrorFlag) {
                                 throw std::runtime_error{"WriteFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
                             }
-
+                            assertSizeLimits<DWORD>(e.second.size());
                             bErrorFlag = WriteFile(getHandle(id), e.second.data(), e.second.size(), &dwBytesWritten, NULL);
                             if (FALSE == bErrorFlag) {
                                 throw std::runtime_error{"WriteFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
@@ -1138,6 +1149,7 @@ namespace PapierMache::DbStuff {
                                 // 最初に0埋めする
                                 std::vector<std::byte> zeroSeq;
                                 zeroSeq.resize(tableInfo_.columnSize(toLower(e.first)));
+                                assertSizeLimits<DWORD>(zeroSeq.size());
                                 bErrorFlag = WriteFile(getHandle(id), zeroSeq.data(), zeroSeq.size(), &dwBytesWritten, NULL);
                                 if (FALSE == bErrorFlag) {
                                     throw std::runtime_error{"WriteFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
@@ -1155,6 +1167,7 @@ namespace PapierMache::DbStuff {
                                 if (FALSE == bErrorFlag) {
                                     throw std::runtime_error{"WriteFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
                                 }
+                                assertSizeLimits<DWORD>(e.second.size());
                                 bErrorFlag = WriteFile(getHandle(id), e.second.data(), e.second.size(), &dwBytesWritten, NULL);
                                 if (FALSE == bErrorFlag) {
                                     throw std::runtime_error{"WriteFile() -> GetLastError() : " + std::to_string(GetLastError()) + FILE_INFO};
@@ -1248,6 +1261,7 @@ namespace PapierMache::DbStuff {
                 }
             }
             temp_.swap(v);
+#pragma warning(pop)
         }
 
         template <typename T>

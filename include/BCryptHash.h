@@ -68,6 +68,11 @@ namespace PapierMache {
             for (const char c : plainText) {
                 text.push_back(c);
             }
+            if (text.size() > ULONG_MAX) {
+                throw std::runtime_error("arithmetic overflow" + FILE_INFO);
+            }
+#pragma warning(push)
+#pragma warning(disable : 4267)
             status = BCryptHash(hAesAlg,
                                 NULL,
                                 0,
@@ -75,6 +80,7 @@ namespace PapierMache {
                                 text.size(),
                                 hash.data(),
                                 hash.size());
+#pragma warning(pop)
             if (!isSuccess(status)) {
                 throw std::runtime_error{"**** Error " + getHexValue(status) + " returned by BCryptHash" + FILE_INFO};
             }
@@ -90,6 +96,7 @@ namespace PapierMache {
             }
         }
         catch (std::exception &e) {
+            UNREFERENCED_PARAMETER(e);
             BCryptCloseAlgorithmProvider(hAesAlg, 0);
             throw;
         }
