@@ -1124,7 +1124,6 @@ namespace PapierMache::DbStuff {
                             }
                         }
                         catch (DatafileException &e) {
-                            // TODO: エラー内容を送信する
                             DB_LOG << e.what() << FILE_INFO;
                             Result r{-1, "", "", e.what()};
                             response = r.toBytes();
@@ -1133,7 +1132,6 @@ namespace PapierMache::DbStuff {
                             continue;
                         }
                         catch (DatabaseException &e) {
-                            // TODO: エラー内容を送信する
                             DB_LOG << e.what() << FILE_INFO;
                             Result r{-1, "", "", e.what()};
                             response = r.toBytes();

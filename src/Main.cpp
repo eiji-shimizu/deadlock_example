@@ -46,7 +46,6 @@ int main()
         // グローバル変数にこのデータベースをセット
         database = &db;
 
-        // TODO: 実装が進んだらWebServerにdbの参照をセットしてから開始する
         if (server.start() != 0) {
             LOG << "server start failed.";
             return 1;

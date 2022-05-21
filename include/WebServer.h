@@ -476,7 +476,6 @@ namespace PapierMache {
                         }
                         bool isEnd = false;
                         if (request.headers.size() > 0 && request.headers.find("Content-Length") != request.headers.end()) {
-                            // TODO: リクエストボディの解析
                             int contentLength = std::stoi(request.headers.at("Content-Length"));
                             // ヘッダ + crlf + ボディの長さに至れば全て受信したとみなす
                             if (headerLength + 4 + contentLength == recvData.str().length()) {
